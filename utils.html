@@ -535,6 +535,38 @@ window.checkDuplicate = async function(link, name) {
     }
 };
 
+// ค้นข้ามทุกชีตในทีมเดียว — คืน { success, groups: [{ sheet, label, headers, matches: [{ row, originalIndex }] }], total, capped }
+// groups จัดตามชีต โดย label = ชื่อชีต(คน)ไว้โชว์ว่าเจอในชีตของใคร
+window.searchTeamData = async function(teamSource, query) {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res || { success: false, groups: [], total: 0 }); })
+                .withFailureHandler(function(err) { resolve({ success: false, groups: [], total: 0, error: err.message }); })
+                .searchTeamData(teamSource, query);
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 250); });
+        var q = String(query == null ? '' : query).trim().toLowerCase();
+        if (q.length < 2) return { success: true, groups: [], total: 0 };
+        var cfg = await window.fetchSheetNames();
+        var sheets = (cfg.data || []).filter(function(s) { return s.source === teamSource; });
+        var groups = [], total = 0;
+        sheets.forEach(function(s, si) {
+            var matches = [];
+            for (var i = 1; i <= 10; i++) {
+                var row = window.generateMockRow(si * 100 + i);
+                if (row.some(function(c) { return String(c == null ? '' : c).toLowerCase().indexOf(q) > -1; })) {
+                    matches.push({ row: row, originalIndex: i - 1 });
+                    total++;
+                }
+            }
+            if (matches.length) groups.push({ sheet: s.name, label: s.label, headers: window.MOCK_HEADERS, matches: matches });
+        });
+        return { success: true, groups: groups, total: total, capped: false };
+    }
+};
+
 // 🟢 New Frontend Wrapper for Cache Clearing
 window.clearSystemCache = async function() {
     if (window.isGAS) {

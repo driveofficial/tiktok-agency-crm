@@ -423,6 +423,11 @@
                 // 🚀 Apply Debounce to Search
                 const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
+                // Global search (ค้นข้ามทุกชีตในทีมที่เปิดอยู่ — โชว์ว่าเจอในชีตของใคร)
+                const [globalMode, setGlobalMode] = React.useState(false);
+                const [globalResults, setGlobalResults] = React.useState(null); // { groups, total, capped } | null
+                const [globalLoading, setGlobalLoading] = React.useState(false);
+
                 const [currentPage, setCurrentPage] = React.useState(1);
                 const [modalOpen, setModalOpen] = React.useState(false);
                 const [formNonce, setFormNonce] = React.useState(0); // bump to reset the add-form for the next entry
@@ -692,6 +697,36 @@
                     const start = (currentPage - 1) * ITEMS_PER_PAGE;
                     return filteredRows.slice(start, start + ITEMS_PER_PAGE);
                 }, [filteredRows, currentPage]);
+
+                // Global search: เมื่ออยู่ในโหมด "ทั้งทีม" และมีคำค้น >= 2 ตัวอักษร ยิงไป backend ค้นทุกชีตในทีม
+                React.useEffect(() => {
+                    if (!globalMode) { setGlobalResults(null); setGlobalLoading(false); return; }
+                    const q = (debouncedSearchTerm || "").trim();
+                    if (q.length < 2) { setGlobalResults(null); setGlobalLoading(false); return; }
+                    let cancelled = false;
+                    setGlobalLoading(true);
+                    window.searchTeamData(activeTeam, q)
+                        .then(res => { if (!cancelled) { setGlobalResults(res && res.success ? res : { groups: [], total: 0 }); setGlobalLoading(false); } })
+                        .catch(() => { if (!cancelled) { setGlobalResults({ groups: [], total: 0 }); setGlobalLoading(false); } });
+                    return () => { cancelled = true; };
+                }, [globalMode, debouncedSearchTerm, activeTeam]);
+
+                // สลับโหมดค้นทั้งทีม — ปิดแล้วล้างผล; เปิดแล้วโฟกัสที่คำค้นเดิม
+                const toggleGlobalMode = () => {
+                    setGlobalMode(v => {
+                        const next = !v;
+                        if (!next) setGlobalResults(null);
+                        return next;
+                    });
+                };
+
+                // คลิกผลค้นข้ามชีต: กระโดดไปชีตนั้น ปิดโหมด global แล้วคงคำค้นไว้เป็นตัวกรองในชีตปลายทาง
+                const openGlobalResult = (sheetName) => {
+                    setGlobalMode(false);
+                    setGlobalResults(null);
+                    setCurrentPage(1);
+                    setActiveTab(sheetName);
+                };
 
                 const totalPages = Math.ceil(filteredRows.length / ITEMS_PER_PAGE);
 
@@ -1009,8 +1044,10 @@
                                         <FilterDropdown value={statusFilter} onChange={handleStatusFilterChange} options={window.COLUMN_CONFIG["สถานะ"].options.filter(o => o !== "-")} />
                                         <div className="relative w-64">
                                             <Icons.Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                            <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
+                                            <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
                                         </div>
+                                        {/* ค้นทั้งทีม: สลับจากค้นเฉพาะชีตนี้ เป็นค้นทุกชีตในทีม แล้วบอกว่าเจอในชีตของใคร */}
+                                        <button onClick={toggleGlobalMode} title="ค้นทั้งทีม — ค้นทุกชีตในทีมนี้ แล้วบอกว่าเจอในชีตของใคร" aria-pressed={globalMode} className={`flex items-center gap-1.5 h-10 px-3 rounded-xl border text-sm font-bold transition-all shrink-0 whitespace-nowrap ${globalMode ? 'bg-[#215E61] text-white border-[#215E61] shadow-md' : 'bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100'}`}><Icons.Layers size={16} /> ทั้งทีม</button>
                                         <button onClick={() => { setSortOrder(o => o === 'newest' ? 'oldest' : 'newest'); setCurrentPage(1); }} title="สลับลำดับ เก่า/ใหม่" aria-label={`ลำดับปัจจุบัน: ${sortOrder === 'newest' ? 'ใหม่สุดก่อน' : 'เก่าสุดก่อน'} — กดเพื่อสลับ`} className="flex items-center gap-1.5 h-10 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 text-sm font-bold transition-all shrink-0 whitespace-nowrap">
                                             <Icons.ArrowUpDown size={16} /> {sortOrder === 'newest' ? 'ใหม่สุดก่อน' : 'เก่าสุดก่อน'}
                                         </button>
@@ -1033,9 +1070,13 @@
                                             <button onClick={toggleSelectMode} title="เลือกหลายรายการ" className={`shrink-0 w-11 h-11 flex items-center justify-center rounded-xl transition-all ${selectMode ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}><Icons.CheckSquare size={20} /></button>
                                             <button onClick={() => loadData(activeTab, true)} className={`shrink-0 w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all ${isRefreshing ? 'animate-spin' : ''}`}><Icons.RefreshCw size={20} /></button>
                                         </div>
-                                        <div className="relative w-full">
-                                            <Icons.Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                            <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
+                                        <div className="flex items-center gap-2 w-full">
+                                            <div className="relative flex-1 min-w-0">
+                                                <Icons.Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
+                                            </div>
+                                            {/* ค้นทั้งทีม (มือถือ) */}
+                                            <button onClick={toggleGlobalMode} aria-pressed={globalMode} title="ค้นทั้งทีม" className={`shrink-0 flex items-center gap-1 h-11 px-3 rounded-xl border text-xs font-bold transition-all ${globalMode ? 'bg-[#215E61] text-white border-[#215E61] shadow-md' : 'bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100'}`}><Icons.Layers size={16} /> ทั้งทีม</button>
                                         </div>
                                     </div>
                                 </div>
@@ -1107,7 +1148,66 @@
 
                         <main className="flex-1 px-6 pb-6 pt-0 min-h-0">
                             {view === 'list' ? (
-                                isLoading ? (
+                                globalMode ? (
+                                    <div className="bg-white rounded-[32px] h-full shadow-sm border border-slate-100 flex flex-col overflow-hidden animate-enter">
+                                        <div className="px-6 pt-4 pb-3 border-b border-slate-50 flex items-center justify-between bg-white z-10">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <Icons.Layers size={18} className="text-[#215E61] shrink-0" />
+                                                <span className="font-bold text-slate-800 truncate">ค้นทั้งทีม · {activeTeam}</span>
+                                                {globalResults && globalResults.total > 0 && (
+                                                    <span className="shrink-0 text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{globalResults.total}{globalResults.capped ? '+' : ''} รายการ</span>
+                                                )}
+                                            </div>
+                                            <button onClick={toggleGlobalMode} title="ปิดการค้นทั้งทีม" className="shrink-0 flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-600 hover:bg-slate-100 px-2.5 py-1.5 rounded-lg transition-colors"><Icons.X size={14}/> ปิด</button>
+                                        </div>
+                                        <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+                                            {globalLoading ? (
+                                                <div className="flex items-center justify-center gap-2 py-16 text-slate-400 text-sm font-medium"><Icons.Loader2 size={18} className="animate-spin" /> กำลังค้นทุกชีตในทีม...</div>
+                                            ) : (debouncedSearchTerm || "").trim().length < 2 ? (
+                                                <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
+                                                    <Icons.Search size={36} className="mb-3 text-slate-300" />
+                                                    <p className="text-sm font-bold text-slate-500">พิมพ์อย่างน้อย 2 ตัวอักษร</p>
+                                                    <p className="text-xs mt-1">ค้นชื่อ / ลิงก์ / ข้อความ ทุกชีตในทีม {activeTeam}</p>
+                                                </div>
+                                            ) : !globalResults || globalResults.total === 0 ? (
+                                                <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
+                                                    <Icons.Search size={36} className="mb-3 text-slate-300" />
+                                                    <p className="text-sm font-bold text-slate-500">ไม่พบ "{debouncedSearchTerm}" ในทีมนี้</p>
+                                                    <p className="text-xs mt-1">ลองคำอื่น หรือสลับทีมด้านบน</p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-5">
+                                                    {globalResults.groups.map(g => (
+                                                        <div key={g.sheet}>
+                                                            <div className="flex items-center gap-2 px-1 mb-2">
+                                                                <Icons.Users size={14} className="text-slate-400 shrink-0" />
+                                                                <span className="text-sm font-bold text-slate-700 truncate">{g.label || g.sheet}</span>
+                                                                <span className="text-[11px] font-bold text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded-md shrink-0">{g.matches.length}</span>
+                                                            </div>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
+                                                                {g.matches.map(m => {
+                                                                    const stage = window.getPipelineStage(g.headers, m.row);
+                                                                    return (
+                                                                        <button key={g.sheet + ':' + m.originalIndex} onClick={() => openGlobalResult(g.sheet)} className="text-left bg-white rounded-2xl border border-slate-100 hover:border-[#215E61]/40 hover:shadow-md p-3.5 transition-all active:scale-[0.99] flex items-center gap-3">
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <div className="font-bold text-slate-800 truncate">{window.getDisplayName(g.headers, m.row)}</div>
+                                                                                <div className="flex items-center gap-1.5 mt-1.5">
+                                                                                    {stage && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${window.getStageChipClasses(stage)}`}>{stage.label}</span>}
+                                                                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded-md truncate">{g.label || g.sheet}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <Icons.ChevronRight size={16} className="text-slate-300 shrink-0" />
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : isLoading ? (
                                     <SkeletonLoader mode={viewMode === 'card' ? 'card' : 'table'} />
                                 ) : (
                                     <div className="bg-white rounded-[32px] h-full shadow-sm border border-slate-100 flex flex-col overflow-hidden relative animate-enter">

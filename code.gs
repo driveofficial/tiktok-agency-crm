@@ -30,6 +30,7 @@ const DASHBOARD_CACHE_TIME = 1800;
 const CACHE_KEY_ROUTING = "ROUTING_MAP_V13_RESET";
 const CACHE_KEY_DASHBOARD = "DASHBOARD_DATA_V15_RESET";
 const CACHE_KEY_DIRECTORY = "CREATOR_INDEX_V1"; // index ครีเอเตอร์ทุกชีต (ใช้เช็คซ้ำข้ามทีม)
+const CACHE_KEY_TEAM_CORPUS = "TEAM_CORPUS_V1_"; // + <ชื่อทีม> — รวมทุกแถวของทุกชีตในทีม (ใช้ค้นข้ามชีต)
 
 function include(filename) {
   try {
@@ -123,6 +124,70 @@ function checkDuplicate(link, name) {
     return { success: true, matches: matches };
   } catch (e) {
     return { success: false, matches: [], error: e.message };
+  }
+}
+
+// --------------------------------------------------------------------------
+// GLOBAL SEARCH (ค้นข้ามทุกชีตในทีมเดียว — โชว์ว่าเจอในชีตของใคร)
+// --------------------------------------------------------------------------
+// รวมทุกแถวของทุกชีตในทีมไว้เป็น corpus แล้วแคช (~30 นาที เท่า dashboard) เพื่อไม่ให้ทุกครั้งที่พิมพ์
+// ต้อง rescan ทั้งทีมใหม่ (ช้า). ข้อมูลอาจคลาดได้ ~30 นาทีเหมือน creator index — ยอมได้เพราะ search
+// เป็นตัวช่วยหา ไม่ใช่ correctness (ชีตที่เปิดอยู่ยังเช็คสดจาก rows ฝั่งหน้าเว็บ)
+function getTeamCorpus(teamSource) {
+  const key = CACHE_KEY_TEAM_CORPUS + teamSource;
+  const cached = getCachedData(key);
+  if (cached) return cached;
+
+  const map = getRoutingMap();
+  const corpus = []; // [{ sheet, label, headers, rows: [[...]] }]
+  map.forEach(item => {
+    if (item.source !== teamSource || item.id === "ERROR") return;
+    try {
+      const ss = SpreadsheetApp.openById(item.id);
+      const sheet = ss.getSheetByName(item.tabName);
+      if (!sheet || sheet.getLastRow() < 2) return;
+      const data = sheet.getDataRange().getDisplayValues();
+      corpus.push({ sheet: item.name, label: item.label, headers: data[0], rows: data.slice(1) });
+    } catch (e) {
+      console.warn(`Corpus skip ${item.name}: ${e.message}`);
+    }
+  });
+
+  // อาจเกิน 100KB (ลิมิต CacheService) แล้ว put ล้มเงียบๆ — ไม่เป็นไร แค่รอบหน้าจะ rescan อีก
+  setCachedData(key, corpus, DASHBOARD_CACHE_TIME);
+  return corpus;
+}
+
+// ค้นทุกชีตในทีม: คืนผลจัดกลุ่มตามชีต (มี label ชื่อชีตไว้โชว์) + headers เพื่อให้หน้าเว็บ render ชื่อ/สถานะได้
+// query ต้องยาว >= 2 ตัวอักษร; จำกัดผลรวมที่ MAX เพื่อกัน payload บวม
+function searchTeamData(teamSource, query) {
+  try {
+    if (!teamSource) return { success: true, groups: [], total: 0 };
+    const q = String(query == null ? "" : query).trim().toLowerCase();
+    if (q.length < 2) return { success: true, groups: [], total: 0 };
+
+    const corpus = getTeamCorpus(teamSource);
+    const MAX = 200;
+    const groups = [];
+    let total = 0;
+
+    for (let s = 0; s < corpus.length && total < MAX; s++) {
+      const sh = corpus[s];
+      const matches = [];
+      for (let i = 0; i < sh.rows.length && total < MAX; i++) {
+        const row = sh.rows[i];
+        let hit = false;
+        for (let c = 0; c < row.length; c++) {
+          if (String(row[c] == null ? "" : row[c]).toLowerCase().indexOf(q) > -1) { hit = true; break; }
+        }
+        if (hit) { matches.push({ row: row, originalIndex: i }); total++; }
+      }
+      if (matches.length) groups.push({ sheet: sh.sheet, label: sh.label, headers: sh.headers, matches: matches });
+    }
+
+    return { success: true, groups: groups, total: total, capped: total >= MAX };
+  } catch (e) {
+    return { success: false, error: e.message, groups: [], total: 0 };
   }
 }
 
