@@ -1,0 +1,216 @@
+
+<script>
+(() => {
+  const React = window.React;
+  const Icons = window.Icons;
+  const CRMTableBase = ({ headers, rows, loadingRows, onUpdateCell, onEditRow, onDeleteRow, onOpenInfo, selectMode, isRowSelected, onToggleSelect, onToggleSelectAll, allVisibleSelected }) => {
+    const safeHeaders = headers || [];
+    const hiddenCols = window.HIDDEN_COLUMNS || [];
+    const isHidden = (h) => {
+      if (!h) return true;
+      return hiddenCols.includes(String(h).trim());
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-auto bg-white custom-scrollbar relative" }, /* @__PURE__ */ React.createElement("table", { className: "w-full text-sm text-left border-separate border-spacing-0" }, /* @__PURE__ */ React.createElement("thead", { className: "text-[11px] text-slate-500 font-bold uppercase tracking-wider sticky top-0 z-40 bg-white/95 backdrop-blur-sm shadow-sm" }, /* @__PURE__ */ React.createElement("tr", null, selectMode && /* @__PURE__ */ React.createElement("th", { className: "px-4 py-4 border-b border-slate-100 bg-white/95 backdrop-blur-sm w-10" }, /* @__PURE__ */ React.createElement(window.Checkbox, { checked: allVisibleSelected, onChange: onToggleSelectAll, size: 18 })), safeHeaders.map((h, i) => {
+      if (isHidden(h)) return null;
+      return /* @__PURE__ */ React.createElement("th", { key: i, className: "px-6 py-4 whitespace-nowrap border-b border-slate-100 bg-white/95 backdrop-blur-sm" }, h);
+    }), /* @__PURE__ */ React.createElement("th", { className: "px-6 py-4 text-right sticky right-0 bg-white border-b border-slate-100 z-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]" }, "Manage"))), /* @__PURE__ */ React.createElement("tbody", null, rows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: safeHeaders.length + 1 + (selectMode ? 1 : 0), className: "py-16" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center gap-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-300" }, /* @__PURE__ */ React.createElement(Icons.Search, { size: 24 })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { className: "text-slate-600 font-bold text-sm" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25"), /* @__PURE__ */ React.createElement("p", { className: "text-slate-400 font-medium text-xs mt-0.5" }, "\u0E25\u0E2D\u0E07\u0E1B\u0E23\u0E31\u0E1A\u0E15\u0E31\u0E27\u0E01\u0E23\u0E2D\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E04\u0E33\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E14\u0E39\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07"))))) : rows.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i, className: `hover:bg-slate-50/80 group transition-colors ${selectMode && isRowSelected(i) ? "bg-[#215E61]/10 hover:bg-[#215E61]/14" : ""}` }, selectMode && /* @__PURE__ */ React.createElement("td", { className: "px-4 py-3 align-middle border-b border-slate-100" }, /* @__PURE__ */ React.createElement(window.Checkbox, { checked: isRowSelected(i), onChange: () => onToggleSelect(i), size: 18 })), r.map((c, j) => {
+      const h = safeHeaders[j];
+      if (!h || isHidden(h)) return null;
+      const hl = String(h).toLowerCase();
+      const cfg = window.getColumnConfig(h)?.config;
+      const isLink = String(c || "").startsWith("http");
+      const isTiktokCol = hl.indexOf("tiktok") > -1 || hl.indexOf("\u0E25\u0E34\u0E07\u0E04\u0E4C") > -1 || hl.indexOf("\u0E25\u0E34\u0E07\u0E01\u0E4C") > -1;
+      const isNickCol = hl.indexOf("\u0E0A\u0E37\u0E48\u0E2D\u0E40\u0E25\u0E48\u0E19") > -1 && !isTiktokCol;
+      let cell;
+      if (cfg?.type === "select") {
+        cell = /* @__PURE__ */ React.createElement(window.SmartSelect, { value: c, options: cfg.options, headerName: h, onChange: (v) => onUpdateCell(i, j, v), isLoading: loadingRows.has(`${i}-${j}`) });
+      } else if (isTiktokCol) {
+        const uname = window.extractTiktokUsername ? window.extractTiktokUsername(c) : "";
+        if (isLink) {
+          cell = /* @__PURE__ */ React.createElement("a", { href: c, target: "_blank", className: "inline-flex items-center gap-1 text-[#215E61] font-bold text-xs hover:underline bg-[#215E61]/10 px-2.5 py-1 rounded-lg transition-colors" }, uname ? /* @__PURE__ */ React.createElement(Icons.Video, { size: 10 }) : /* @__PURE__ */ React.createElement(Icons.ExternalLink, { size: 10 }), " ", uname || "Open");
+        } else {
+          cell = /* @__PURE__ */ React.createElement("span", { className: "text-slate-700 font-medium" }, uname || c || "-");
+        }
+      } else if (isNickCol && (!c || String(c).trim() === "")) {
+        const dn = window.getDisplayName ? window.getDisplayName(safeHeaders, r) : "";
+        cell = /* @__PURE__ */ React.createElement("span", { className: "text-slate-400 italic font-medium" }, dn || "-");
+      } else if (isLink) {
+        cell = /* @__PURE__ */ React.createElement("a", { href: c, target: "_blank", className: "inline-flex items-center gap-1 text-[#215E61] font-bold text-xs hover:underline bg-[#215E61]/10 px-2.5 py-1 rounded-lg transition-colors" }, /* @__PURE__ */ React.createElement(Icons.ExternalLink, { size: 10 }), " Open");
+      } else {
+        cell = /* @__PURE__ */ React.createElement("span", { className: "text-slate-700 font-medium" }, c);
+      }
+      return /* @__PURE__ */ React.createElement("td", { key: j, title: cfg?.type !== "select" && !isLink ? String(c ?? "") : void 0, className: "px-6 py-3 whitespace-nowrap max-w-[200px] truncate align-middle border-b border-slate-100" }, cell);
+    }), /* @__PURE__ */ React.createElement("td", { className: "px-6 py-3 text-right sticky right-0 bg-white group-hover:bg-slate-50 transition-colors z-30 align-middle border-b border-slate-100 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-end items-center gap-1" }, (() => {
+      const items = window.getChecklistItems ? window.getChecklistItems(safeHeaders, r) : [];
+      if (items.length === 0) return null;
+      const done = items.filter((x) => x.done).length;
+      const complete = done === items.length;
+      return /* @__PURE__ */ React.createElement("span", { title: "\u0E04\u0E27\u0E32\u0E21\u0E04\u0E37\u0E1A\u0E2B\u0E19\u0E49\u0E32\u0E40\u0E0A\u0E47\u0E04\u0E25\u0E34\u0E2A\u0E15\u0E4C", className: `text-[10px] font-bold px-2 py-1 rounded-lg border mr-1 ${complete ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-slate-50 text-slate-500 border-slate-100"}` }, done, "/", items.length);
+    })(), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => onOpenInfo(i),
+        className: "w-8 h-8 inline-flex items-center justify-center text-[#215E61] hover:text-[#215E61] hover:bg-[#215E61]/10 rounded-lg transition-all",
+        title: "\u0E14\u0E39\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14",
+        "aria-label": "\u0E14\u0E39\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14"
+      },
+      /* @__PURE__ */ React.createElement(Icons.User, { size: 16 })
+    ), /* @__PURE__ */ React.createElement("div", { className: "w-px h-4 bg-slate-200 mx-1" }), /* @__PURE__ */ React.createElement("button", { onClick: () => onEditRow(i), title: "\u0E41\u0E01\u0E49\u0E44\u0E02", "aria-label": "\u0E41\u0E01\u0E49\u0E44\u0E02", className: "p-1.5 hover:bg-[#215E61]/10 text-slate-400 hover:text-[#215E61] rounded-lg transition-colors" }, /* @__PURE__ */ React.createElement(Icons.Edit, { size: 16 })), /* @__PURE__ */ React.createElement("button", { onClick: () => onDeleteRow(i), title: "\u0E25\u0E1A", "aria-label": "\u0E25\u0E1A", className: "p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors" }, /* @__PURE__ */ React.createElement(Icons.Trash2, { size: 16 })))))))));
+  };
+  const MobileCardBase = ({ row, headers, rowIndex, loadingRows, onUpdateCell, onEdit, onDelete, onOpenInfo, selectMode, selected, onToggleSelect, enableSwipe = true, expanded = false, onToggleExpand }) => {
+    const showFull = expanded && !selectMode;
+    const get = (k) => {
+      if (!headers) return null;
+      const kl = String(k).toLowerCase();
+      const i = headers.findIndex((h) => h && String(h).toLowerCase().includes(kl));
+      return i === -1 ? null : { v: row[i], i };
+    };
+    const [copied, setCopied] = React.useState(false);
+    const n = window.getDisplayName ? window.getDisplayName(headers, row) : get("\u0E0A\u0E37\u0E48\u0E2D\u0E40\u0E25\u0E48\u0E19")?.v || "\u0E44\u0E21\u0E48\u0E23\u0E30\u0E1A\u0E38\u0E0A\u0E37\u0E48\u0E2D";
+    const d = get("\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48")?.v;
+    const seq = get("\u0E25\u0E33\u0E14\u0E31\u0E1A")?.v;
+    const followers = get("\u0E1C\u0E39\u0E49\u0E15\u0E34\u0E14\u0E15\u0E32\u0E21")?.v || "-";
+    const views = get("\u0E27\u0E34\u0E27")?.v || "-";
+    const style = get("\u0E2A\u0E44\u0E15\u0E25\u0E4C")?.v || "-";
+    const comm = get("Commission")?.v || "-";
+    const s = get("\u0E2A\u0E16\u0E32\u0E19\u0E30");
+    const l = get("\u0E25\u0E34\u0E07\u0E04\u0E4C")?.v;
+    const isL = l && String(l).startsWith("http");
+    const stage = window.getPipelineStage ? window.getPipelineStage(headers, row) : null;
+    const stageClasses = window.getStageChipClasses ? window.getStageChipClasses(stage) : "bg-slate-100 text-slate-500 border-slate-200";
+    const checklistItems = window.getChecklistItems ? window.getChecklistItems(headers, row) : [];
+    const checklistDone = checklistItems.filter((x) => x.done).length;
+    const checklistComplete = checklistItems.length > 0 && checklistDone === checklistItems.length;
+    const seqStr = seq == null ? "#" : String(seq);
+    const seqTextSize = seqStr.length >= 4 ? "text-sm" : seqStr.length === 3 ? "text-base" : "text-lg";
+    const cardBody = /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        onClick: selectMode ? onToggleSelect : void 0,
+        className: `bg-white rounded-[24px] p-5 sm:p-6 shadow-sm border space-y-5 animate-enter relative transition-shadow ${selectMode ? "cursor-pointer " + (selected ? "border-[#215E61]/40 ring-2 ring-[#215E61]/18 bg-[#215E61]/8" : "border-slate-100 hover:border-slate-200") : "border-slate-100 hover:shadow-md"}`
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-3 items-center min-w-0 flex-1" }, selectMode ? /* @__PURE__ */ React.createElement(window.Checkbox, { checked: !!selected, onChange: onToggleSelect, size: 30 }) : /* @__PURE__ */ React.createElement("div", { className: `w-12 h-12 rounded-2xl bg-[#215E61]/10 flex items-center justify-center font-extrabold text-[#215E61] ${seqTextSize} border border-[#215E61]/18 shrink-0 shadow-sm` }, seqStr), /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("h3", { className: "font-extrabold text-slate-800 truncate text-xl leading-tight" }, n), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 mt-2 flex-wrap" }, stage && /* @__PURE__ */ React.createElement("span", { className: `text-[11px] font-bold px-2.5 py-1 rounded-full border whitespace-nowrap ${stageClasses}` }, stage.label), checklistItems.length > 0 && /* @__PURE__ */ React.createElement("span", { title: "\u0E04\u0E27\u0E32\u0E21\u0E04\u0E37\u0E1A\u0E2B\u0E19\u0E49\u0E32\u0E40\u0E0A\u0E47\u0E04\u0E25\u0E34\u0E2A\u0E15\u0E4C", className: `text-[11px] font-extrabold px-2 py-1 rounded-full border whitespace-nowrap ${checklistComplete ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-slate-50 text-slate-500 border-slate-100"}` }, checklistDone, "/", checklistItems.length), d && /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-400 flex items-center gap-1 font-medium whitespace-nowrap" }, /* @__PURE__ */ React.createElement(Icons.Calendar, { size: 12 }), " ", d)))), !selectMode && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+        e.stopPropagation();
+        onEdit();
+      }, className: "w-9 h-9 inline-flex items-center justify-center text-slate-400 hover:text-[#215E61] hover:bg-[#215E61]/10 rounded-lg transition-colors", title: "\u0E41\u0E01\u0E49\u0E44\u0E02", "aria-label": "\u0E41\u0E01\u0E49\u0E44\u0E02" }, /* @__PURE__ */ React.createElement(Icons.Edit, { size: 17 })), /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+        e.stopPropagation();
+        onDelete();
+      }, className: "w-9 h-9 inline-flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors", title: "\u0E25\u0E1A", "aria-label": "\u0E25\u0E1A" }, /* @__PURE__ */ React.createElement(Icons.Trash2, { size: 17 })))),
+      showFull && /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2.5" }, [
+        { k: "Followers", v: followers },
+        { k: "Views", v: views },
+        { k: "Style", v: style },
+        { k: "Comm.", v: comm }
+      ].map((m, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "bg-slate-50/70 rounded-2xl px-3.5 py-3 border border-slate-100" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-400 uppercase font-bold tracking-wider mb-1" }, m.k), /* @__PURE__ */ React.createElement("div", { className: "text-base font-extrabold text-slate-800 truncate" }, m.v)))),
+      (() => {
+        const items = checklistItems;
+        if (items.length === 0) return null;
+        const shortLabel = { "\u0E1B\u0E34\u0E14\u0E14\u0E35\u0E25 / \u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D": "\u0E1B\u0E34\u0E14\u0E14\u0E35\u0E25" };
+        return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(Icons.CheckSquare, { size: 13 }), " \u0E40\u0E0A\u0E47\u0E04\u0E25\u0E34\u0E2A\u0E15\u0E4C", !selectMode && /* @__PURE__ */ React.createElement("span", { className: "normal-case tracking-normal text-slate-300 font-medium" }, "\xB7 \u0E41\u0E15\u0E30\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E15\u0E34\u0E4A\u0E01")), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, items.map((item, idx) => {
+          const label = shortLabel[item.label] || item.label;
+          const loading = loadingRows.has(`${rowIndex}-${item.idx}`);
+          const canToggle = item.toggleable && !selectMode && !!onUpdateCell;
+          const cls = `text-[11px] font-bold px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition-colors ${item.done ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-slate-50 text-slate-500 border-slate-100"} ${canToggle ? "cursor-pointer " + (item.done ? "hover:bg-emerald-100" : "hover:bg-slate-100") : ""}`;
+          const inner = /* @__PURE__ */ React.createElement(React.Fragment, null, loading ? /* @__PURE__ */ React.createElement(Icons.Loader2, { size: 11, className: "animate-spin" }) : item.done ? /* @__PURE__ */ React.createElement(Icons.Check, { size: 11, strokeWidth: 3 }) : /* @__PURE__ */ React.createElement(Icons.Circle, { size: 10 }), label);
+          return canToggle ? /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              key: idx,
+              type: "button",
+              disabled: loading,
+              "aria-pressed": item.done,
+              "aria-label": `${label}: ${item.done ? "\u0E17\u0E33\u0E41\u0E25\u0E49\u0E27 \u0E41\u0E15\u0E30\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" : "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E17\u0E33 \u0E41\u0E15\u0E30\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E17\u0E33\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E2B\u0E21\u0E32\u0E22"}`,
+              onClick: (e) => {
+                e.stopPropagation();
+                onUpdateCell(rowIndex, item.idx, item.done ? item.undoneValue : item.doneValue);
+              },
+              className: cls + " active:scale-95 disabled:opacity-60"
+            },
+            inner
+          ) : /* @__PURE__ */ React.createElement("span", { key: idx, className: cls }, inner);
+        })));
+      })(),
+      /* @__PURE__ */ React.createElement("div", { className: selectMode ? "pointer-events-none opacity-50 space-y-5" : "space-y-5" }, s && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] font-bold text-slate-400 uppercase mb-2 flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(Icons.Target, { size: 13 }), " \u0E2A\u0E16\u0E32\u0E19\u0E30"), /* @__PURE__ */ React.createElement(window.SmartSelect, { value: s.v, options: window.COLUMN_CONFIG["\u0E2A\u0E16\u0E32\u0E19\u0E30"].options, headerName: "\u0E2A\u0E16\u0E32\u0E19\u0E30", onChange: (v) => onUpdateCell(rowIndex, s.i, v), isLoading: loadingRows.has(`${rowIndex}-${s.i}`) })), showFull && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] font-bold text-slate-400 uppercase mb-2 flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(Icons.User, { size: 13 }), " \u0E01\u0E32\u0E23\u0E15\u0E34\u0E14\u0E15\u0E48\u0E2D"), (() => {
+        const contact = get("\u0E0A\u0E48\u0E2D\u0E07\u0E17\u0E32\u0E07\u0E15\u0E34\u0E14\u0E15\u0E48\u0E2D");
+        const raw = contact ? String(contact.v || "").trim() : "";
+        if (!raw || raw === "-") return null;
+        const channel = String(get("\u0E15\u0E34\u0E14\u0E15\u0E48\u0E2D\u0E01\u0E31\u0E19")?.v || "").trim();
+        const platform = channel.toLowerCase();
+        const isUrl = /^https?:\/\//i.test(raw);
+        const isPhone = /^[0-9+][0-9\-\s]{5,}$/.test(raw);
+        const chan = platform.includes("line") ? { label: "Line", cls: "bg-[#06c755]/10 text-[#06c755] border-[#06c755]/25", Icon: Icons.MessageCircle } : platform.includes("facebook") ? { label: "Facebook", cls: "bg-[#1877f2]/10 text-[#1877f2] border-[#1877f2]/25", Icon: Icons.Facebook } : platform.includes("insta") || platform.includes("ig") ? { label: "Instagram", cls: "bg-[#e1306c]/10 text-[#e1306c] border-[#e1306c]/25", Icon: Icons.Instagram } : platform.includes("tiktok") ? { label: "TikTok", cls: "bg-slate-900/5 text-slate-800 border-slate-900/15", Icon: Icons.Video } : platform.includes("\u0E42\u0E17\u0E23") || isPhone ? { label: "\u0E42\u0E17\u0E23", cls: "bg-cyan-50 text-cyan-700 border-cyan-200", Icon: Icons.Phone } : { label: platform || "\u0E15\u0E34\u0E14\u0E15\u0E48\u0E2D", cls: "bg-slate-100 text-slate-600 border-slate-200", Icon: Icons.User };
+        const commonCls = `group w-full flex items-center gap-3 px-3 py-2.5 mb-2.5 rounded-2xl border transition-all ${chan.cls}`;
+        const inner = /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "shrink-0 flex items-center justify-center w-8 h-8 rounded-xl bg-white/60" }, /* @__PURE__ */ React.createElement(chan.Icon, { size: 16 })), /* @__PURE__ */ React.createElement("span", { className: "flex flex-col min-w-0 flex-1 text-left leading-tight" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] uppercase font-bold tracking-wide opacity-60" }, channel || chan.label), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-bold truncate" }, raw)), /* @__PURE__ */ React.createElement("span", { className: "shrink-0 opacity-60" }, isUrl ? /* @__PURE__ */ React.createElement(Icons.ExternalLink, { size: 16 }) : isPhone ? /* @__PURE__ */ React.createElement(Icons.Phone, { size: 16 }) : copied ? /* @__PURE__ */ React.createElement(Icons.Check, { size: 16, strokeWidth: 3 }) : /* @__PURE__ */ React.createElement(Icons.Copy, { size: 16 })));
+        if (isUrl) return /* @__PURE__ */ React.createElement("a", { href: raw, target: "_blank", rel: "noopener noreferrer", onClick: (e) => e.stopPropagation(), className: commonCls + " hover:brightness-95" }, inner);
+        if (isPhone) return /* @__PURE__ */ React.createElement("a", { href: `tel:${raw.replace(/[\s-]/g, "")}`, onClick: (e) => e.stopPropagation(), className: commonCls + " hover:brightness-95" }, inner);
+        return /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            type: "button",
+            "aria-label": `\u0E04\u0E31\u0E14\u0E25\u0E2D\u0E01\u0E0A\u0E48\u0E2D\u0E07\u0E17\u0E32\u0E07\u0E15\u0E34\u0E14\u0E15\u0E48\u0E2D ${raw}`,
+            onClick: (e) => {
+              e.stopPropagation();
+              const t = raw;
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(t).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }).catch(() => {
+                });
+              }
+            },
+            className: commonCls + " hover:brightness-95 active:scale-[0.99]"
+          },
+          inner
+        );
+      })(), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-3 gap-2.5" }, ["\u0E17\u0E31\u0E01/\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E17\u0E31\u0E01", "\u0E04\u0E2D\u0E21\u0E40\u0E21\u0E19\u0E17\u0E4C", "\u0E15\u0E32\u0E21\u0E41\u0E0A\u0E17"].map((k) => {
+        const x = get(k);
+        return x ? /* @__PURE__ */ React.createElement("div", { key: k, className: "bg-slate-50 p-3 rounded-2xl border border-slate-100 flex flex-col justify-between h-full gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-400 font-bold uppercase tracking-wide truncate" }, k.split("/")[0]), /* @__PURE__ */ React.createElement(window.SmartSelect, { value: x.v, options: window.getColumnConfig(k)?.config?.options, headerName: k, onChange: (v) => onUpdateCell(rowIndex, x.i, v), isLoading: loadingRows.has(`${rowIndex}-${x.i}`), compact: true })) : null;
+      }))), (get("\u0E2A\u0E48\u0E07\u0E02\u0E2D\u0E07\u0E16\u0E36\u0E07\u0E22\u0E31\u0E07") || get("\u0E25\u0E07\u0E04\u0E25\u0E34\u0E1B\u0E22\u0E31\u0E07") || get("\u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A\u0E02\u0E2D\u0E07")) && /* @__PURE__ */ React.createElement("div", { className: "border-t border-slate-100 pt-4 space-y-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(Icons.Package, { size: 13 }), " \u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E2A\u0E48\u0E07 & \u0E04\u0E25\u0E34\u0E1B"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2.5" }, [{ k: "\u0E2A\u0E48\u0E07\u0E02\u0E2D\u0E07\u0E16\u0E36\u0E07\u0E22\u0E31\u0E07", label: "\u0E2A\u0E48\u0E07\u0E02\u0E2D\u0E07" }, { k: "\u0E25\u0E07\u0E04\u0E25\u0E34\u0E1B\u0E22\u0E31\u0E07", label: "\u0E25\u0E07\u0E04\u0E25\u0E34\u0E1B" }].map(({ k, label }) => {
+        const x = get(k);
+        return x ? /* @__PURE__ */ React.createElement("div", { key: k, className: "bg-slate-50 p-3 rounded-2xl border border-slate-100 flex flex-col justify-between h-full gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-400 font-bold uppercase tracking-wide truncate" }, label), /* @__PURE__ */ React.createElement(window.SmartSelect, { value: x.v, options: window.getColumnConfig(k)?.config?.options, headerName: k, onChange: (v) => onUpdateCell(rowIndex, x.i, v), isLoading: loadingRows.has(`${rowIndex}-${x.i}`), compact: true })) : null;
+      })), (() => {
+        const r = get("\u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A\u0E02\u0E2D\u0E07");
+        if (!r) return null;
+        const raw = String(r.v || "").trim();
+        const hasDate = raw !== "" && raw !== "-";
+        let inputVal = "";
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) inputVal = raw;
+        else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)) {
+          const p = raw.split("/");
+          inputVal = `${p[2]}-${String(p[1]).padStart(2, "0")}-${String(p[0]).padStart(2, "0")}`;
+        }
+        const isCellLoading = loadingRows.has(`${rowIndex}-${r.i}`);
+        return /* @__PURE__ */ React.createElement("div", { className: `flex items-center justify-between gap-2 rounded-2xl border px-3.5 py-3 ${hasDate ? "bg-emerald-50 border-emerald-100" : "bg-slate-50 border-slate-100"}` }, /* @__PURE__ */ React.createElement("span", { className: `text-[11px] font-bold uppercase flex items-center gap-1.5 shrink-0 ${hasDate ? "text-emerald-600" : "text-slate-400"}` }, /* @__PURE__ */ React.createElement(Icons.Calendar, { size: 13 }), " \u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A\u0E02\u0E2D\u0E07\u0E27\u0E31\u0E19\u0E44\u0E2B\u0E19"), isCellLoading ? /* @__PURE__ */ React.createElement(Icons.Loader2, { size: 16, className: "animate-spin text-slate-400" }) : /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            type: "date",
+            value: inputVal,
+            onChange: (e) => onUpdateCell(rowIndex, r.i, e.target.value),
+            onClick: (e) => e.stopPropagation(),
+            className: `text-sm font-bold bg-transparent outline-none text-right cursor-pointer min-w-0 ${hasDate ? "text-emerald-700" : "text-slate-400"}`
+          }
+        ));
+      })()), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2.5 pt-1" }, /* @__PURE__ */ React.createElement("button", { onClick: onOpenInfo, className: "flex-1 py-3.5 rounded-2xl bg-[#215E61]/10 text-[#215E61] text-sm font-bold hover:bg-[#215E61]/18 transition-colors flex items-center justify-center gap-2 border border-[#215E61]/18" }, /* @__PURE__ */ React.createElement(Icons.User, { size: 16 }), " \u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E40\u0E15\u0E34\u0E21"), isL && /* @__PURE__ */ React.createElement("a", { href: l, target: "_blank", className: "flex-1 py-3.5 rounded-2xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-sm" }, /* @__PURE__ */ React.createElement(Icons.ExternalLink, { size: 16 }), " TikTok")))),
+      !selectMode && onToggleExpand && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          onClick: (e) => {
+            e.stopPropagation();
+            onToggleExpand();
+          },
+          "aria-expanded": showFull,
+          className: "w-full flex items-center justify-center gap-1.5 pt-1 text-xs font-bold text-slate-400 hover:text-[#215E61] transition-colors"
+        },
+        showFull ? /* @__PURE__ */ React.createElement(React.Fragment, null, "\u0E22\u0E48\u0E2D ", /* @__PURE__ */ React.createElement(Icons.ChevronUp, { size: 15 })) : /* @__PURE__ */ React.createElement(React.Fragment, null, "\u0E14\u0E39\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E40\u0E15\u0E34\u0E21 ", /* @__PURE__ */ React.createElement(Icons.ChevronDown, { size: 15 }))
+      )
+    );
+    if (selectMode || !enableSwipe) return cardBody;
+    return /* @__PURE__ */ React.createElement(window.SwipeableRow, { onEdit, onDelete, disabled: selectMode }, cardBody);
+  };
+  window.CRMTable = React.memo(CRMTableBase);
+  window.MobileCard = React.memo(MobileCardBase);
+})();
+
+</script>

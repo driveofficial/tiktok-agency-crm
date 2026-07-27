@@ -1,0 +1,890 @@
+
+    <script>
+const React = window.React;
+const ReactDOM = window.ReactDOM;
+const ITEMS_PER_PAGE = 20;
+const STALE_WAIT_DAYS = 3;
+const parseRowDate = (raw) => {
+  const s = String(raw || "").trim();
+  const ny = (y) => y >= 2400 ? y - 543 : y;
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return new Date(ny(+m[1]), +m[2] - 1, +m[3]).getTime();
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return new Date(ny(+m[3]), +m[2] - 1, +m[1]).getTime();
+  const t = Date.parse(s);
+  return isNaN(t) ? NaN : t;
+};
+const classifyTask = (headers, row) => {
+  if (!headers || !row) return { follow_up: false, waiting: false, pending_request: false, stale_waiting: false };
+  const find = (pred) => headers.findIndex((h) => h && pred(String(h)));
+  const val = (i) => i > -1 ? String(row[i] || "").trim() : "";
+  const status = val(find((h) => h.includes("\u0E2A\u0E16\u0E32\u0E19\u0E30")));
+  const contacted = val(find((h) => h.includes("\u0E17\u0E31\u0E01")));
+  const shippedIdx = find((h) => h.includes("\u0E2A\u0E48\u0E07\u0E02\u0E2D\u0E07"));
+  const clipIdx = find((h) => h.includes("\u0E25\u0E07\u0E04\u0E25\u0E34\u0E1B"));
+  const shipped = val(shippedIdx);
+  const clip = val(clipIdx);
+  const accepted = status.includes("\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D") && !status.includes("\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A") || status.includes("\u0E14\u0E35\u0E25\u0E08\u0E1A");
+  const dropped = status.includes("\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A") || status.includes("\u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18") || status.includes("\u0E40\u0E23\u0E17\u0E01\u0E32\u0E23\u0E4C\u0E14") || status.includes("\u0E44\u0E21\u0E48\u0E2D\u0E48\u0E32\u0E19") || status.includes("\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A");
+  const pending_request = status.includes("\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D") && status.includes("\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E01\u0E14\u0E02\u0E2D");
+  const waiting = contacted.includes("\u0E17\u0E31\u0E01\u0E41\u0E25\u0E49\u0E27") && !accepted && !dropped;
+  const shipPending = shippedIdx > -1 && !shipped.includes("\u0E2A\u0E48\u0E07\u0E41\u0E25\u0E49\u0E27");
+  const clipPending = clipIdx > -1 && !clip.includes("\u0E25\u0E07\u0E41\u0E25\u0E49\u0E27");
+  const follow_up = accepted && (shipPending || clipPending);
+  let stale_waiting = false;
+  if (waiting) {
+    const dateIdx = headers.findIndex((h) => h && String(h).includes("\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48"));
+    const t = dateIdx > -1 ? parseRowDate(row[dateIdx]) : NaN;
+    if (!isNaN(t)) {
+      const days = Math.floor((Date.now() - t) / 864e5);
+      stale_waiting = days >= STALE_WAIT_DAYS;
+    }
+  }
+  return { follow_up, waiting, pending_request, stale_waiting };
+};
+const isBlankRow = (headers, row) => {
+  if (!headers || !row) return false;
+  const skip = ["\u0E25\u0E33\u0E14\u0E31\u0E1A", "\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48", "\u0E08\u0E33\u0E19\u0E27\u0E19"];
+  for (let i = 0; i < headers.length; i++) {
+    const h = String(headers[i] || "").trim();
+    if (skip.includes(h)) continue;
+    const v = String(row[i] == null ? "" : row[i]).trim();
+    if (v !== "" && v !== "-") return false;
+  }
+  return true;
+};
+const useDebounce = (value, delay) => {
+  const [debouncedValue, setDebouncedValue] = React.useState(value);
+  React.useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+};
+const useStickyState = (defaultValue, key) => {
+  const [value, setValue] = React.useState(() => {
+    const stickyValue = window.localStorage.getItem(key);
+    return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue;
+  });
+  React.useEffect(() => {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+  return [value, setValue];
+};
+const FilterDropdown = ({ value, onChange, options }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  const { Icons } = window;
+  React.useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (ref.current && !ref.current.contains(event.target)) setIsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+  const getStyle = (val) => {
+    if (val === "ALL") return "bg-white border-slate-200 text-slate-600 hover:border-slate-300";
+    if (val === "Replied") return "bg-[#215E61]/10 border-[#215E61]/25 text-[#215E61] font-bold";
+    if (val === "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D") return "bg-emerald-50 border-emerald-200 text-emerald-700 font-bold";
+    if (val === "No Status" || val === "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E16\u0E32\u0E19\u0E30") return "bg-slate-100 border-slate-300 text-slate-600 font-bold";
+    if (window.getStatusColor) return window.getStatusColor(val, "\u0E2A\u0E16\u0E32\u0E19\u0E30");
+    return "bg-white border-slate-200 text-slate-700";
+  };
+  const activeStyle = getStyle(value);
+  const specialOptions = [
+    { label: "Accepted (\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D)", val: "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D", icon: /* @__PURE__ */ React.createElement(Icons.CheckCircle2, { size: 14, className: "text-emerald-500" }) },
+    { label: "Replied (\u0E15\u0E2D\u0E1A\u0E41\u0E25\u0E49\u0E27)", val: "Replied", icon: /* @__PURE__ */ React.createElement(Icons.CheckCircle2, { size: 14, className: "text-[#215E61]" }) },
+    { label: "No Status (\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E16\u0E32\u0E19\u0E30)", val: "No Status", icon: /* @__PURE__ */ React.createElement("div", { className: "w-3 h-3 rounded-full border border-slate-400 bg-transparent" }) }
+  ];
+  return /* @__PURE__ */ React.createElement("div", { className: "relative z-50", ref }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setIsOpen(!isOpen),
+      className: `flex items-center gap-2 px-3 py-2.5 rounded-xl border shadow-sm transition-all duration-200 w-full md:w-auto md:min-w-[160px] justify-between ${activeStyle} ${isOpen ? "ring-2 ring-offset-1 ring-slate-200" : ""} hover:-translate-y-0.5 hover:shadow-md active:translate-y-0`
+    },
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: `p-1 rounded-lg shrink-0 ${value === "ALL" ? "bg-slate-100 text-slate-400" : "bg-white/30 backdrop-blur-sm"}` }, /* @__PURE__ */ React.createElement(Icons.Filter, { size: 14 })), /* @__PURE__ */ React.createElement("span", { className: "truncate text-sm" }, value === "ALL" ? "\u0E2A\u0E16\u0E32\u0E19\u0E30 (\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14)" : value === "Replied" ? "\u0E15\u0E2D\u0E1A\u0E41\u0E25\u0E49\u0E27 (Replied)" : value)),
+    /* @__PURE__ */ React.createElement(Icons.ChevronDown, { size: 14, className: `opacity-60 transition-transform duration-300 shrink-0 ${isOpen ? "rotate-180" : ""}` })
+  ), isOpen && /* @__PURE__ */ React.createElement("div", { className: "absolute top-full right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 animate-enter max-h-[400px] overflow-y-auto custom-scrollbar ring-1 ring-slate-900/5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    onChange("ALL");
+    setIsOpen(false);
+  }, className: `w-full text-left px-3 py-2.5 rounded-xl text-sm font-bold mb-1 transition-colors flex items-center justify-between group ${value === "ALL" ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"}` }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Icons.Layers, { size: 14, className: "opacity-50" }), " \u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14 (All)"), value === "ALL" && /* @__PURE__ */ React.createElement(Icons.Check, { size: 16 })), /* @__PURE__ */ React.createElement("div", { className: "my-1 border-t border-slate-50 mx-2" }), /* @__PURE__ */ React.createElement("div", { className: "px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest" }, "Special Filters"), specialOptions.map((opt) => /* @__PURE__ */ React.createElement("button", { key: opt.val, onClick: () => {
+    onChange(opt.val);
+    setIsOpen(false);
+  }, className: `w-full text-left px-3 py-2.5 rounded-xl text-sm font-bold mb-1 transition-colors flex items-center justify-between ${value === opt.val ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"}` }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, opt.icon, " ", opt.label), value === opt.val && /* @__PURE__ */ React.createElement(Icons.Check, { size: 16 }))), /* @__PURE__ */ React.createElement("div", { className: "my-1 border-t border-slate-50 mx-2" }), /* @__PURE__ */ React.createElement("div", { className: "px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest" }, "By Status"), options.map((opt) => {
+    if (opt === "-" || opt === "") return null;
+    const colorClass = window.getStatusColor ? window.getStatusColor(opt, "\u0E2A\u0E16\u0E32\u0E19\u0E30") : "";
+    const isSelected = value === opt;
+    return /* @__PURE__ */ React.createElement("button", { key: opt, onClick: () => {
+      onChange(opt);
+      setIsOpen(false);
+    }, className: `w-full text-left px-3 py-2 rounded-xl text-xs font-medium mb-1 transition-all flex items-center justify-between group border border-transparent ${isSelected ? "brightness-95 shadow-sm ring-1 ring-black/5 transform scale-[0.98]" : "hover:scale-[0.98] hover:shadow-sm opacity-90 hover:opacity-100"} ${colorClass}` }, /* @__PURE__ */ React.createElement("span", null, opt), isSelected && /* @__PURE__ */ React.createElement(Icons.Check, { size: 14, className: "opacity-70" }));
+  })));
+};
+const QuickStats = ({ rows, headers }) => {
+  const { Icons } = window;
+  const stats = React.useMemo(() => {
+    const total = rows.length;
+    let pending = 0;
+    let accepted = 0;
+    let dealt = 0;
+    const statusIdx = headers.findIndex((h) => h.includes("\u0E2A\u0E16\u0E32\u0E19\u0E30"));
+    if (statusIdx > -1) {
+      rows.forEach((r) => {
+        const s = String(r.data[statusIdx] || "").toLowerCase();
+        if (s.includes("\u0E15\u0E31\u0E14\u0E2A\u0E34\u0E19\u0E43\u0E08") || s.includes("\u0E23\u0E2D")) pending++;
+        if (s.includes("\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D") && !s.includes("\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A")) accepted++;
+        if (s.includes("\u0E14\u0E35\u0E25\u0E08\u0E1A") || s.includes("\u0E2D\u0E19\u0E38\u0E21\u0E31\u0E15\u0E34")) dealt++;
+      });
+    }
+    return { total, pending, accepted, dealt };
+  }, [rows, headers]);
+  if (rows.length === 0) return null;
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-3 py-1 animate-enter" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 bg-white pl-3 pr-4 py-2 rounded-2xl shadow-sm border border-slate-100 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "w-8 h-8 rounded-full bg-[#FF9E20] text-[#3a1a00] flex items-center justify-center font-bold text-xs shadow-md shadow-orange-300/50" }, stats.total), /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold text-slate-600" }, "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { className: "text-[10px] font-normal text-slate-400" }, "\u0E43\u0E19\u0E2B\u0E19\u0E49\u0E32\u0E19\u0E35\u0E49"))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 bg-white pl-3 pr-4 py-2 rounded-2xl shadow-sm border border-amber-400/40 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center" }, /* @__PURE__ */ React.createElement(Icons.Target, { size: 14, strokeWidth: 3 })), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold text-amber-700" }, stats.pending), /* @__PURE__ */ React.createElement("span", { className: "text-[10px] font-medium text-amber-600/80 uppercase" }, "\u0E23\u0E2D\u0E25\u0E38\u0E49\u0E19"))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 bg-white pl-3 pr-4 py-2 rounded-2xl shadow-sm border border-emerald-400/40 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center" }, /* @__PURE__ */ React.createElement(Icons.CheckCircle2, { size: 14, strokeWidth: 3 })), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold text-emerald-700" }, stats.accepted), /* @__PURE__ */ React.createElement("span", { className: "text-[10px] font-medium text-emerald-600/80 uppercase" }, "\u0E23\u0E31\u0E1A\u0E07\u0E32\u0E19"))));
+};
+const BulkStatusButton = ({ onSelect, disabled }) => {
+  const { Icons } = window;
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (ref.current && !ref.current.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+  const options = window.COLUMN_CONFIG["\u0E2A\u0E16\u0E32\u0E19\u0E30"].options.filter((o) => o !== "-");
+  return /* @__PURE__ */ React.createElement("div", { className: "relative", ref }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      disabled,
+      onClick: () => setOpen((o) => !o),
+      className: "flex items-center gap-2 px-4 h-11 rounded-xl bg-white/10 hover:bg-white/20 text-sm font-bold text-white disabled:opacity-40 transition-colors whitespace-nowrap"
+    },
+    "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30 ",
+    /* @__PURE__ */ React.createElement(Icons.ChevronDown, { size: 14, className: `transition-transform ${open ? "rotate-180" : ""}` })
+  ), open && /* @__PURE__ */ React.createElement("div", { className: "absolute top-full mt-2 right-0 w-64 bg-white rounded-2xl shadow-2xl border border-slate-100 p-2 max-h-[320px] overflow-y-auto custom-scrollbar z-50 animate-enter" }, options.map((o) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      key: o,
+      onClick: () => {
+        onSelect(o);
+        setOpen(false);
+      },
+      className: `w-full text-left px-3 py-2.5 rounded-xl text-xs font-medium mb-1 transition-all ${window.getStatusColor(o, "\u0E2A\u0E16\u0E32\u0E19\u0E30")}`
+    },
+    o
+  ))));
+};
+const EmptyState = ({ onReset }) => {
+  const { Icons } = window;
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center py-20 animate-enter text-center px-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6 relative" }, /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-slate-100 rounded-full animate-ping opacity-20" }), /* @__PURE__ */ React.createElement(Icons.Search, { size: 40, className: "text-slate-300" })), /* @__PURE__ */ React.createElement("h3", { className: "text-lg font-bold text-slate-800 mb-2" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E17\u0E35\u0E48\u0E04\u0E38\u0E13\u0E04\u0E49\u0E19\u0E2B\u0E32"), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-400 max-w-xs mx-auto mb-6" }, "\u0E25\u0E2D\u0E07\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E04\u0E33\u0E2A\u0E30\u0E01\u0E14 \u0E2B\u0E23\u0E37\u0E2D\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E40\u0E07\u0E37\u0E48\u0E2D\u0E19\u0E44\u0E02\u0E01\u0E32\u0E23\u0E01\u0E23\u0E2D\u0E07\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E14\u0E39\u0E19\u0E30\u0E04\u0E23\u0E31\u0E1A"), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: onReset,
+      className: "flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 shadow-sm transition-all active:scale-95"
+    },
+    /* @__PURE__ */ React.createElement(Icons.RefreshCw, { size: 16 }),
+    "\u0E25\u0E49\u0E32\u0E07\u0E15\u0E31\u0E27\u0E01\u0E23\u0E2D\u0E07\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14"
+  ));
+};
+const PullToRefresh = ({ onRefresh, refreshing, scrollClassName, children }) => {
+  const { Icons } = window;
+  const [pull, setPull] = React.useState(0);
+  const startY = React.useRef(0);
+  const pulling = React.useRef(false);
+  const scrollRef = React.useRef(null);
+  const THRESHOLD = 70;
+  const onTouchStart = (e) => {
+    const el = scrollRef.current;
+    pulling.current = !!(el && el.scrollTop <= 0);
+    if (pulling.current) startY.current = e.touches[0].clientY;
+  };
+  const onTouchMove = (e) => {
+    if (!pulling.current || refreshing) return;
+    const dy = e.touches[0].clientY - startY.current;
+    if (dy > 0) setPull(Math.min(dy * 0.5, 90));
+  };
+  const onTouchEnd = () => {
+    if (!pulling.current) return;
+    pulling.current = false;
+    if (pull >= THRESHOLD && !refreshing) onRefresh();
+    setPull(0);
+  };
+  const armed = pull >= THRESHOLD;
+  return /* @__PURE__ */ React.createElement("div", { className: "relative flex-1 min-h-0 flex flex-col overflow-hidden" }, (pull > 0 || refreshing) && /* @__PURE__ */ React.createElement("div", { className: "absolute top-2 left-0 right-0 flex justify-center z-20 pointer-events-none" }, /* @__PURE__ */ React.createElement("div", { className: `bg-white shadow-md rounded-full p-2 border border-slate-100 transition-colors ${refreshing || armed ? "text-[#215E61]" : "text-slate-300"}` }, /* @__PURE__ */ React.createElement(Icons.RefreshCw, { size: 18, className: refreshing ? "animate-spin" : "", style: refreshing ? void 0 : { transform: `rotate(${pull * 3}deg)` } }))), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      ref: scrollRef,
+      className: scrollClassName,
+      onTouchStart,
+      onTouchMove,
+      onTouchEnd,
+      style: { transform: pull ? `translateY(${pull}px)` : void 0, transition: pull ? "none" : "transform 0.25s ease" }
+    },
+    children
+  ));
+};
+const App = () => {
+  const { Button, Dashboard, CRMTable, MobileCard, EditModal, InfoModal, TeamSelector, Icons, AlertModal, Toast, SkeletonLoader } = window;
+  const LOGO_URL = "";
+  const [activeTab, setActiveTab] = useStickyState("", "crm_active_tab");
+  const [activeTeam, setActiveTeam] = useStickyState("", "crm_active_team");
+  const [view, setView] = React.useState("list");
+  const [allSheets, setAllSheets] = React.useState([]);
+  const [viewModePref, setViewModePref] = useStickyState("card", "crm_view_mode_pref");
+  const [sortOrder, setSortOrder] = useStickyState("oldest", "crm_sort_order_v2");
+  const [hideBlank, setHideBlank] = useStickyState(true, "crm_hide_blank_v2");
+  const [isNarrowScreen, setIsNarrowScreen] = React.useState(window.innerWidth < 768);
+  const viewMode = isNarrowScreen ? "card" : viewModePref;
+  const [headers, setHeaders] = React.useState([]);
+  const [rows, setRows] = React.useState([]);
+  const [dashboardData, setDashboardData] = React.useState(null);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [isConfigLoading, setIsConfigLoading] = React.useState(true);
+  const [loadingDashboard, setLoadingDashboard] = React.useState(false);
+  const [rechartsReady, setRechartsReady] = React.useState(() => !!window.Recharts);
+  React.useEffect(() => {
+    if (view !== "dashboard" || rechartsReady) return;
+    let cancelled = false;
+    const loadScript = (src) => new Promise((resolve, reject) => {
+      let s = document.querySelector(`script[data-src="${src}"]`);
+      if (s) {
+        if (s.dataset.loaded) return resolve();
+        s.addEventListener("load", () => resolve());
+        s.addEventListener("error", reject);
+        return;
+      }
+      s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.dataset.src = src;
+      s.onload = () => {
+        s.dataset.loaded = "1";
+        resolve();
+      };
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    (async () => {
+      try {
+        if (!window.PropTypes) await loadScript("https://cdn.jsdelivr.net/npm/prop-types@15.8.1/prop-types.min.js");
+        if (!window.Recharts) await loadScript("https://cdn.jsdelivr.net/npm/recharts@2.12.0/umd/Recharts.min.js");
+        if (!cancelled) setRechartsReady(true);
+      } catch (e) {
+        console.error("Recharts failed to load", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [view, rechartsReady]);
+  const [dashboardFilterType, setDashboardFilterType] = React.useState("ALL");
+  const [dashboardFilterValue, setDashboardFilterValue] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("ALL");
+  const [quickFilter, setQuickFilter] = React.useState(null);
+  const [dataCache, setDataCache] = React.useState({});
+  const [searchTerm, setSearchTerm] = React.useState("");
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [modalOpen, setModalOpen] = React.useState(false);
+  const [formNonce, setFormNonce] = React.useState(0);
+  const [editingRowIndex, setEditingRowIndex] = React.useState(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [infoRowIndex, setInfoRowIndex] = React.useState(null);
+  const [loadingCells, setLoadingCells] = React.useState(/* @__PURE__ */ new Set());
+  const [alertConfig, setAlertConfig] = React.useState({ isOpen: false });
+  const [toasts, setToasts] = React.useState([]);
+  const alertResolver = React.useRef(null);
+  const activeTabRef = React.useRef("");
+  const mutationSeq = React.useRef(0);
+  const [selectMode, setSelectMode] = React.useState(false);
+  const [selectedRows, setSelectedRows] = React.useState(/* @__PURE__ */ new Set());
+  const [isBulkSubmitting, setIsBulkSubmitting] = React.useState(false);
+  const [expandedRows, setExpandedRows] = React.useState(/* @__PURE__ */ new Set());
+  const toggleRowExpand = (originalIndex) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(originalIndex)) next.delete(originalIndex);
+      else next.add(originalIndex);
+      return next;
+    });
+  };
+  const showAlert = ({ type, title, description, confirmText, cancelText }) => {
+    return new Promise((resolve) => {
+      alertResolver.current = resolve;
+      setAlertConfig({ isOpen: true, type, title, description, confirmText, cancelText });
+    });
+  };
+  const closeAlert = (result) => {
+    setAlertConfig((prev) => ({ ...prev, isOpen: false }));
+    if (alertResolver.current) alertResolver.current(result);
+  };
+  const showToast = (type, title, description, options = {}) => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev, { id, type, title, description, ...options }]);
+  };
+  const closeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
+  const clearFilters = () => {
+    setSearchTerm("");
+    setStatusFilter("ALL");
+    setQuickFilter(null);
+    setCurrentPage(1);
+  };
+  const handleStatusFilterChange = (v) => {
+    setStatusFilter(v);
+    setQuickFilter(null);
+    setCurrentPage(1);
+  };
+  const handleQuickFilter = (key) => {
+    setQuickFilter((prev) => {
+      const next = prev === key ? null : key;
+      if (next) setStatusFilter("ALL");
+      return next;
+    });
+    setCurrentPage(1);
+  };
+  const refreshDashboardSilently = () => {
+    window.fetchDashboardData().then((res) => {
+      if (res.success) {
+        setDashboardData(res.data);
+        localStorage.setItem("crm_dashboard_cache", JSON.stringify(res.data));
+      }
+    });
+  };
+  React.useEffect(() => {
+    const handleResize = () => setIsNarrowScreen(window.innerWidth < 768);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  React.useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+  const loadConfig = async () => {
+    setIsConfigLoading(true);
+    try {
+      const cachedConfig = localStorage.getItem("crm_config_cache");
+      if (cachedConfig) {
+        const parsed = JSON.parse(cachedConfig);
+        setAllSheets(parsed);
+        setIsConfigLoading(false);
+      }
+      const res = await window.fetchSheetNames();
+      if (res.success && res.data.length > 0) {
+        setAllSheets(res.data);
+        localStorage.setItem("crm_config_cache", JSON.stringify(res.data));
+        const teams2 = Array.from(new Set(res.data.map((s) => s.source)));
+        if (teams2.length > 0) {
+          if (!activeTeam || !teams2.includes(activeTeam)) {
+            const firstTeam = teams2[0];
+            setActiveTeam(firstTeam);
+            const firstTab = res.data.find((s) => s.source === firstTeam);
+            if (firstTab) setActiveTab(firstTab.name);
+          }
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setIsConfigLoading(false);
+  };
+  React.useEffect(() => {
+    const initApp = async () => {
+      await loadConfig();
+      setLoadingDashboard(true);
+      const cachedDash = localStorage.getItem("crm_dashboard_cache");
+      if (cachedDash) {
+        setDashboardData(JSON.parse(cachedDash));
+        setLoadingDashboard(false);
+      }
+      try {
+        const res = await window.fetchDashboardData();
+        if (res.success) {
+          setDashboardData(res.data);
+          localStorage.setItem("crm_dashboard_cache", JSON.stringify(res.data));
+        }
+      } catch (err) {
+        console.error(err);
+      }
+      setLoadingDashboard(false);
+    };
+    initApp();
+  }, []);
+  React.useEffect(() => {
+    if (view === "list" && activeTab) {
+      loadData(activeTab);
+      setCurrentPage(1);
+    }
+    setSelectMode(false);
+    setSelectedRows(/* @__PURE__ */ new Set());
+    setExpandedRows(/* @__PURE__ */ new Set());
+  }, [activeTab, view]);
+  const teams = React.useMemo(() => Array.from(new Set(allSheets.map((s) => s.source))), [allSheets]);
+  const filteredTabs = React.useMemo(() => allSheets.filter((s) => s.source === activeTeam), [allSheets, activeTeam]);
+  const handleTeamChange = (team) => {
+    setActiveTeam(team);
+    const firstTab = allSheets.find((s) => s.source === team);
+    if (firstTab) setActiveTab(firstTab.name);
+  };
+  const handleForceRefresh = async () => {
+    setIsConfigLoading(true);
+    try {
+      await window.clearSystemCache();
+      await loadConfig();
+      showToast("success", "\u0E0B\u0E34\u0E07\u0E01\u0E4C\u0E17\u0E35\u0E21\u0E41\u0E25\u0E49\u0E27", "\u0E14\u0E36\u0E07\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E17\u0E35\u0E21\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14\u0E08\u0E32\u0E01 Google Sheet \u0E41\u0E25\u0E49\u0E27");
+    } catch (e) {
+      showAlert({ type: "error", title: "\u0E0B\u0E34\u0E07\u0E01\u0E4C\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08", description: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E23\u0E35\u0E40\u0E1F\u0E23\u0E0A\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E17\u0E35\u0E21\u0E44\u0E14\u0E49" });
+    }
+    setIsConfigLoading(false);
+  };
+  const loadData = React.useCallback(async (sheet, silent = false) => {
+    if (!sheet) return;
+    const cacheKey = `crm_sheet_${sheet}`;
+    const cachedData = localStorage.getItem(cacheKey);
+    if (cachedData && !silent) {
+      const parsed = JSON.parse(cachedData);
+      setHeaders(parsed.headers);
+      setRows(parsed.data);
+      setIsRefreshing(true);
+    } else {
+      if (!silent) setIsLoading(true);
+      else setIsRefreshing(true);
+    }
+    try {
+      const res = await window.fetchSheetData(sheet);
+      if (sheet !== activeTabRef.current) return;
+      if (res.error) throw new Error(res.error);
+      setHeaders(res.headers);
+      setRows(res.data);
+      localStorage.setItem(cacheKey, JSON.stringify({ headers: res.headers, data: res.data, timestamp: Date.now() }));
+    } catch (error) {
+      if (sheet === activeTabRef.current && !cachedData) {
+        showAlert({ type: "error", title: "\u0E42\u0E2B\u0E25\u0E14\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08", description: error.message });
+      }
+    } finally {
+      if (sheet === activeTabRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, []);
+  const filteredRows = React.useMemo(() => {
+    const normYear = (y) => y >= 2400 ? y - 543 : y;
+    const parseDate = (raw) => {
+      const s = String(raw || "").trim();
+      let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (m) return new Date(normYear(+m[1]), +m[2] - 1, +m[3]).getTime();
+      m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) return new Date(normYear(+m[3]), +m[2] - 1, +m[1]).getTime();
+      const t = Date.parse(s);
+      return isNaN(t) ? NaN : t;
+    };
+    const dateIdx = headers.findIndex((h) => h && h.includes("\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48"));
+    const list = rows.map((r, i) => ({ data: r, originalIndex: i })).filter((item) => {
+      const matchesSearch = !debouncedSearchTerm || item.data.some((cell) => String(cell).toLowerCase().includes(debouncedSearchTerm.toLowerCase()));
+      let matchesStatus = true;
+      if (statusFilter !== "ALL") {
+        const statusIdx = headers.findIndex((h) => h.includes("\u0E2A\u0E16\u0E32\u0E19\u0E30"));
+        if (statusIdx > -1) {
+          const rowStatus = String(item.data[statusIdx] || "").toLowerCase();
+          if (statusFilter === "Pending") {
+            matchesStatus = rowStatus.includes("\u0E01\u0E33\u0E25\u0E31\u0E07\u0E15\u0E31\u0E14\u0E2A\u0E34\u0E19\u0E43\u0E08");
+          } else if (statusFilter === "Ghosted") {
+            matchesStatus = rowStatus.includes("\u0E44\u0E21\u0E48\u0E2D\u0E48\u0E32\u0E19") || rowStatus.includes("\u0E2D\u0E48\u0E32\u0E19 \u0E41\u0E15\u0E48\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A") || rowStatus.includes("\u0E2D\u0E48\u0E32\u0E19\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A");
+          } else if (statusFilter === "Replied") {
+            const isGhosted = rowStatus.includes("\u0E44\u0E21\u0E48\u0E2D\u0E48\u0E32\u0E19") || rowStatus.includes("\u0E2D\u0E48\u0E32\u0E19 \u0E41\u0E15\u0E48\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A") || rowStatus.includes("\u0E2D\u0E48\u0E32\u0E19\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A");
+            const isBlank = rowStatus === "" || rowStatus === "-" || rowStatus === "unknown";
+            matchesStatus = !isGhosted && !isBlank;
+          } else if (statusFilter === "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D") {
+            matchesStatus = rowStatus.includes("\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D") && !rowStatus.includes("\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A");
+          } else if (statusFilter === "No Status" || statusFilter === "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E16\u0E32\u0E19\u0E30") {
+            matchesStatus = rowStatus === "" || rowStatus === "-" || rowStatus === "unknown";
+          } else {
+            matchesStatus = rowStatus.includes(statusFilter.toLowerCase());
+          }
+        }
+      }
+      const matchesQuick = !quickFilter || classifyTask(headers, item.data)[quickFilter];
+      const matchesBlank = !hideBlank || !isBlankRow(headers, item.data);
+      return matchesSearch && matchesStatus && matchesQuick && matchesBlank;
+    });
+    const dir = sortOrder === "newest" ? -1 : 1;
+    list.sort((a, b) => {
+      const ka = dateIdx > -1 ? parseDate(a.data[dateIdx]) : NaN;
+      const kb = dateIdx > -1 ? parseDate(b.data[dateIdx]) : NaN;
+      if (!isNaN(ka) && !isNaN(kb) && ka !== kb) return dir * (ka - kb);
+      return dir * (a.originalIndex - b.originalIndex);
+    });
+    return list;
+  }, [rows, debouncedSearchTerm, statusFilter, quickFilter, hideBlank, headers, sortOrder]);
+  const quickCounts = React.useMemo(() => {
+    const c = { follow_up: 0, waiting: 0, pending_request: 0, stale_waiting: 0, blank: 0 };
+    if (!headers.length) return c;
+    rows.forEach((r) => {
+      const t = classifyTask(headers, r);
+      if (t.follow_up) c.follow_up++;
+      if (t.waiting) c.waiting++;
+      if (t.pending_request) c.pending_request++;
+      if (t.stale_waiting) c.stale_waiting++;
+      if (isBlankRow(headers, r)) c.blank++;
+    });
+    return c;
+  }, [rows, headers]);
+  const paginatedItems = React.useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredRows.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredRows, currentPage]);
+  const totalPages = Math.ceil(filteredRows.length / ITEMS_PER_PAGE);
+  const handleDashboardDrillDown = (filterKeyword) => {
+    setStatusFilter(filterKeyword);
+    setView("list");
+    if (dashboardFilterType === "PERSON") {
+      setActiveTab(dashboardFilterValue);
+      const sheetInfo = allSheets.find((s) => s.name === dashboardFilterValue);
+      if (sheetInfo) setActiveTeam(sheetInfo.source);
+    }
+  };
+  const handleCellUpdate = async (rowIndex, colIndex, value) => {
+    mutationSeq.current++;
+    const cellId = `${rowIndex}-${colIndex}`;
+    setLoadingCells((prev) => new Set(prev).add(cellId));
+    const oldRows = [...rows];
+    const updatedRow = [...rows[rowIndex]];
+    updatedRow[colIndex] = value;
+    const newRows = [...rows];
+    newRows[rowIndex] = updatedRow;
+    setRows(newRows);
+    try {
+      const res = await window.updateRow(activeTab, rowIndex, updatedRow);
+      if (!res.success) throw new Error(res.error);
+      localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
+      await loadData(activeTab, true);
+    } catch (error) {
+      setRows(oldRows);
+      showToast("error", "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08", "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E04\u0E48\u0E32\u0E44\u0E14\u0E49");
+    } finally {
+      setLoadingCells((prev) => {
+        const next = new Set(prev);
+        next.delete(cellId);
+        return next;
+      });
+    }
+  };
+  const handleFormSubmit = async (data, addAnother = false) => {
+    mutationSeq.current++;
+    const isEdit = editingRowIndex !== null;
+    setIsSubmitting(true);
+    try {
+      if (editingRowIndex !== null) {
+        const res = await window.updateRow(activeTab, editingRowIndex, data);
+        if (!res.success) throw new Error(res.error);
+        const newRows = [...rows];
+        newRows[editingRowIndex] = data;
+        setRows(newRows);
+        localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
+        showToast("success", "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E41\u0E25\u0E49\u0E27", "\u0E41\u0E01\u0E49\u0E44\u0E02\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E40\u0E23\u0E35\u0E22\u0E1A\u0E23\u0E49\u0E2D\u0E22");
+      } else {
+        const norm = (s) => String(s || "").trim().toLowerCase().replace(/\/+$/, "");
+        const linkIdx = headers.findIndex((h) => {
+          const x = String(h);
+          return x.includes("\u0E25\u0E34\u0E07\u0E04\u0E4C") || x.includes("\u0E25\u0E34\u0E07\u0E01\u0E4C") || x.toLowerCase().includes("tiktok");
+        });
+        const nameIdx = headers.findIndex((h) => String(h).includes("\u0E0A\u0E37\u0E48\u0E2D\u0E40\u0E25\u0E48\u0E19") && !String(h).toLowerCase().includes("tiktok"));
+        const newLinkRaw = linkIdx > -1 ? data[linkIdx] : "";
+        const newNameRaw = nameIdx > -1 ? data[nameIdx] : "";
+        const newLink = norm(newLinkRaw);
+        const newName = norm(newNameRaw);
+        const label = nameIdx > -1 && data[nameIdx] ? data[nameIdx] : data[linkIdx] || "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E19\u0E35\u0E49";
+        const localDup = (newLink || newName) && rows.some((r) => {
+          if (newLink) {
+            const lk = linkIdx > -1 ? norm(r[linkIdx]) : "";
+            if (lk && lk === newLink) return true;
+          } else if (newName) {
+            const nm = nameIdx > -1 ? norm(r[nameIdx]) : "";
+            if (nm && nm === newName) return true;
+          }
+          return false;
+        });
+        let otherSheets = [];
+        if (!addAnother && (newLink || newName)) {
+          try {
+            const chk = await window.checkDuplicate(newLinkRaw, newNameRaw);
+            if (chk && chk.success && Array.isArray(chk.matches)) {
+              otherSheets = Array.from(new Set(chk.matches.map((m) => m.sheet).filter((sn) => sn && sn !== activeTab)));
+            }
+          } catch (e) {
+          }
+        }
+        if (localDup || otherSheets.length) {
+          const where = otherSheets.length ? localDup ? `\u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E0A\u0E35\u0E15\u0E19\u0E35\u0E49 \u0E41\u0E25\u0E30\u0E43\u0E19\u0E0A\u0E35\u0E15: ${otherSheets.join(", ")}` : `\u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E25\u0E49\u0E27\u0E43\u0E19\u0E0A\u0E35\u0E15: ${otherSheets.join(", ")}` : "\u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E0A\u0E35\u0E15\u0E19\u0E35\u0E49\u0E41\u0E25\u0E49\u0E27";
+          const proceed = await showAlert({ type: "warning", title: "\u0E2D\u0E32\u0E08\u0E40\u0E1B\u0E47\u0E19\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E0B\u0E49\u0E33", description: `"${label}" ${where} \u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E0B\u0E49\u0E33\u0E2B\u0E23\u0E37\u0E2D\u0E44\u0E21\u0E48?`, confirmText: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E15\u0E48\u0E2D\u0E44\u0E1B", cancelText: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" });
+          if (proceed !== "confirmed") {
+            setIsSubmitting(false);
+            return;
+          }
+        }
+        const seqIdx = headers.indexOf("\u0E25\u0E33\u0E14\u0E31\u0E1A");
+        const dateIdx = headers.indexOf("\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48");
+        const countIdx = headers.indexOf("\u0E08\u0E33\u0E19\u0E27\u0E19");
+        const today = window.todayISO ? window.todayISO() : (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+        if (countIdx > -1 && dateIdx > -1 && data[dateIdx] === today) {
+          const countToday = rows.filter((r) => r[dateIdx] === today).length + 1;
+          data[countIdx] = countToday;
+        }
+        if (seqIdx > -1 && (!data[seqIdx] || data[seqIdx] === "")) {
+          data[seqIdx] = rows.length + 1;
+        }
+        const res = await window.addRow(activeTab, data);
+        if (!res.success) throw new Error(res.error);
+        const newRows = [...rows, data];
+        setRows(newRows);
+        localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
+        showToast("success", "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E41\u0E25\u0E49\u0E27", "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E43\u0E2B\u0E21\u0E48\u0E40\u0E23\u0E35\u0E22\u0E1A\u0E23\u0E49\u0E2D\u0E22");
+      }
+      if (!isEdit && addAnother) {
+        setFormNonce((n) => n + 1);
+      } else {
+        refreshDashboardSilently();
+        setModalOpen(false);
+        await loadData(activeTab, true);
+      }
+    } catch (error) {
+      showAlert({ type: "error", title: "\u0E17\u0E33\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08", description: error.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  const handleDelete = async (rowIndex) => {
+    const deletedRow = rows[rowIndex];
+    const oldRows = [...rows];
+    const newRows = rows.filter((_, i) => i !== rowIndex);
+    mutationSeq.current++;
+    const mySeq = mutationSeq.current;
+    setRows(newRows);
+    try {
+      const res = await window.deleteRow(activeTab, rowIndex);
+      if (!res.success) throw new Error(res.error);
+      localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
+      refreshDashboardSilently();
+      showToast("success", "\u0E25\u0E1A\u0E41\u0E25\u0E49\u0E27", "\u0E25\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E0A\u0E35\u0E15\u0E41\u0E25\u0E49\u0E27", {
+        actionLabel: "\u0E40\u0E25\u0E34\u0E01\u0E17\u0E33",
+        onAction: async () => {
+          if (mutationSeq.current !== mySeq) {
+            showToast("warning", "\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E41\u0E25\u0E49\u0E27", "\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E2D\u0E37\u0E48\u0E19\u0E2B\u0E25\u0E31\u0E07\u0E08\u0E32\u0E01\u0E25\u0E1A\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27");
+            return;
+          }
+          const undoRes = await window.insertRow(activeTab, rowIndex, deletedRow);
+          if (undoRes.success) {
+            showToast("success", "\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19\u0E41\u0E25\u0E49\u0E27", "\u0E19\u0E33\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E01\u0E25\u0E31\u0E1A\u0E21\u0E32\u0E17\u0E35\u0E48\u0E40\u0E14\u0E34\u0E21\u0E41\u0E25\u0E49\u0E27");
+            refreshDashboardSilently();
+            await loadData(activeTab, true);
+          } else {
+            showAlert({ type: "error", title: "\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08", description: undoRes.error || "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E44\u0E14\u0E49" });
+          }
+        }
+      });
+      await loadData(activeTab, true);
+    } catch (error) {
+      setRows(oldRows);
+      showAlert({ type: "error", title: "\u0E25\u0E1A\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08", description: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E44\u0E14\u0E49 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48" });
+    }
+  };
+  const toggleSelectMode = () => {
+    setSelectMode((m) => !m);
+    setSelectedRows(/* @__PURE__ */ new Set());
+  };
+  const toggleRowSelect = (originalIndex) => {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(originalIndex)) next.delete(originalIndex);
+      else next.add(originalIndex);
+      return next;
+    });
+  };
+  const toggleSelectAllVisible = () => {
+    const visibleIdx = paginatedItems.map((i) => i.originalIndex);
+    setSelectedRows((prev) => {
+      const allSelected = visibleIdx.every((i) => prev.has(i));
+      const next = new Set(prev);
+      visibleIdx.forEach((i) => allSelected ? next.delete(i) : next.add(i));
+      return next;
+    });
+  };
+  const handleBulkStatusUpdate = async (newStatus) => {
+    const statusIdx = headers.findIndex((h) => h.includes("\u0E2A\u0E16\u0E32\u0E19\u0E30"));
+    if (statusIdx === -1 || selectedRows.size === 0) return;
+    mutationSeq.current++;
+    const idxArr = Array.from(selectedRows);
+    setIsBulkSubmitting(true);
+    const oldRows = rows;
+    const newRows = [...rows];
+    idxArr.forEach((i) => {
+      newRows[i] = [...newRows[i]];
+      newRows[i][statusIdx] = newStatus;
+    });
+    setRows(newRows);
+    try {
+      const res = await window.bulkUpdateCell(activeTab, idxArr, statusIdx, newStatus);
+      if (!res.success) throw new Error(res.error);
+      localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
+      showToast("success", "\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E41\u0E25\u0E49\u0E27", `\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E2A\u0E16\u0E32\u0E19\u0E30 ${idxArr.length} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E41\u0E25\u0E49\u0E27`);
+      setSelectMode(false);
+      setSelectedRows(/* @__PURE__ */ new Set());
+      refreshDashboardSilently();
+    } catch (error) {
+      setRows(oldRows);
+      showAlert({ type: "error", title: "\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E2B\u0E25\u0E32\u0E22\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08", description: error.message });
+    } finally {
+      setIsBulkSubmitting(false);
+    }
+  };
+  const handleBulkDelete = async () => {
+    if (selectedRows.size === 0) return;
+    const result = await showAlert({
+      type: "confirm",
+      title: `\u0E25\u0E1A ${selectedRows.size} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23?`,
+      description: "\u0E25\u0E1A\u0E41\u0E25\u0E49\u0E27\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49",
+      confirmText: "\u0E43\u0E0A\u0E48, \u0E25\u0E1A\u0E40\u0E25\u0E22",
+      cancelText: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01"
+    });
+    if (result !== "confirmed") return;
+    mutationSeq.current++;
+    const idxArr = Array.from(selectedRows);
+    setIsBulkSubmitting(true);
+    const oldRows = rows;
+    const newRows = rows.filter((_, i) => !selectedRows.has(i));
+    setRows(newRows);
+    try {
+      const res = await window.bulkDeleteRows(activeTab, idxArr);
+      if (!res.success) throw new Error(res.error);
+      showToast("success", "\u0E25\u0E1A\u0E41\u0E25\u0E49\u0E27", `\u0E25\u0E1A ${idxArr.length} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E41\u0E25\u0E49\u0E27`);
+      setSelectMode(false);
+      setSelectedRows(/* @__PURE__ */ new Set());
+      refreshDashboardSilently();
+      await loadData(activeTab, true);
+    } catch (error) {
+      setRows(oldRows);
+      showAlert({ type: "error", title: "\u0E25\u0E1A\u0E2B\u0E25\u0E32\u0E22\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08", description: error.message });
+    } finally {
+      setIsBulkSubmitting(false);
+    }
+  };
+  return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 flex flex-col bg-[#FFF8F6] text-slate-900 font-sans overflow-hidden" }, /* @__PURE__ */ React.createElement("header", { className: "shrink-0 px-6 py-4 flex items-center justify-between z-30" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, LOGO_URL ? /* @__PURE__ */ React.createElement("img", { src: LOGO_URL, alt: "Logo", className: "w-10 h-10 rounded-xl object-contain bg-white shadow-lg border border-slate-100" }) : /* @__PURE__ */ React.createElement("div", { className: "w-10 h-10 bg-[#215E61] rounded-xl flex items-center justify-center shadow-lg shadow-rose-300/50" }, /* @__PURE__ */ React.createElement("span", { className: "font-extrabold text-xl text-white" }, "T")), /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-extrabold tracking-tight text-slate-900 hidden sm:block" }, "TikTok CRM")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement("a", { href: "https://drive-calculator.vercel.app/", target: "_blank", rel: "noopener noreferrer", className: "hidden md:flex items-center gap-2 bg-gradient-to-r from-[#215E61] to-[#1a4a4d] text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-rose-300/50 transition-all hover:scale-105 active:scale-95 group" }, /* @__PURE__ */ React.createElement(Icons.Calculator, { size: 18, className: "group-hover:rotate-12 transition-transform" }), /* @__PURE__ */ React.createElement("span", null, "\u0E04\u0E33\u0E19\u0E27\u0E13\u0E40\u0E23\u0E17")), /* @__PURE__ */ React.createElement("a", { href: "https://script-six-rho.vercel.app/pages/sereniz", target: "_blank", rel: "noopener noreferrer", className: "hidden md:flex items-center gap-2 bg-[#215E61] text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-all hover:scale-105 hover:bg-[#1a4a4d] active:scale-95 group" }, /* @__PURE__ */ React.createElement(Icons.ExternalLink, { size: 16, className: "group-hover:translate-x-0.5 transition-transform" }), /* @__PURE__ */ React.createElement("span", null, "Script")), /* @__PURE__ */ React.createElement("div", { className: "bg-white p-1 rounded-xl shadow-sm border border-slate-100 flex" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setView("dashboard"), className: `px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === "dashboard" ? "bg-[#215E61] text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"}` }, "Dashboard"), /* @__PURE__ */ React.createElement("button", { onClick: () => setView("list"), className: `px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === "list" ? "bg-[#215E61] text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"}` }, "Records")))), view === "list" && /* @__PURE__ */ React.createElement("div", { className: "shrink-0 px-6 pb-4 z-20" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl p-2 shadow-sm border border-slate-100/60 flex flex-col md:flex-row gap-4 items-center justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-4 flex-1 min-w-0 w-full md:w-auto" }, /* @__PURE__ */ React.createElement("div", { className: "shrink-0 border-r border-slate-100 pr-4" }, /* @__PURE__ */ React.createElement(
+    TeamSelector,
+    {
+      teams,
+      activeTeam,
+      onChange: handleTeamChange,
+      onRefresh: handleForceRefresh,
+      isLoading: isConfigLoading
+    }
+  )), /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-x-auto no-scrollbar flex items-center gap-1" }, isConfigLoading ? /* @__PURE__ */ React.createElement("div", { className: "flex items-center px-4 text-xs text-slate-500 font-medium" }, /* @__PURE__ */ React.createElement(Icons.Loader2, { size: 14, className: "animate-spin mr-2" }), " Loading...") : filteredTabs.map((sheet) => /* @__PURE__ */ React.createElement("button", { key: sheet.name, onClick: () => setActiveTab(sheet.name), className: `px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${activeTab === sheet.name ? "text-white bg-[#215E61]" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}` }, sheet.name)))), /* @__PURE__ */ React.createElement("div", { className: "hidden md:flex items-center gap-3 shrink-0 w-auto border-l border-slate-100 pl-4 justify-end" }, /* @__PURE__ */ React.createElement(FilterDropdown, { value: statusFilter, onChange: handleStatusFilterChange, options: window.COLUMN_CONFIG["\u0E2A\u0E16\u0E32\u0E19\u0E30"].options.filter((o) => o !== "-") }), /* @__PURE__ */ React.createElement("div", { className: "relative w-64" }, /* @__PURE__ */ React.createElement(Icons.Search, { size: 16, className: "absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" }), /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "Search...", value: searchTerm, onChange: (e) => setSearchTerm(e.target.value), className: "w-full pl-9 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" })), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    setSortOrder((o) => o === "newest" ? "oldest" : "newest");
+    setCurrentPage(1);
+  }, title: "\u0E2A\u0E25\u0E31\u0E1A\u0E25\u0E33\u0E14\u0E31\u0E1A \u0E40\u0E01\u0E48\u0E32/\u0E43\u0E2B\u0E21\u0E48", "aria-label": `\u0E25\u0E33\u0E14\u0E31\u0E1A\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19: ${sortOrder === "newest" ? "\u0E43\u0E2B\u0E21\u0E48\u0E2A\u0E38\u0E14\u0E01\u0E48\u0E2D\u0E19" : "\u0E40\u0E01\u0E48\u0E32\u0E2A\u0E38\u0E14\u0E01\u0E48\u0E2D\u0E19"} \u2014 \u0E01\u0E14\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E2A\u0E25\u0E31\u0E1A`, className: "flex items-center gap-1.5 h-10 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 text-sm font-bold transition-all shrink-0 whitespace-nowrap" }, /* @__PURE__ */ React.createElement(Icons.ArrowUpDown, { size: 16 }), " ", sortOrder === "newest" ? "\u0E43\u0E2B\u0E21\u0E48\u0E2A\u0E38\u0E14\u0E01\u0E48\u0E2D\u0E19" : "\u0E40\u0E01\u0E48\u0E32\u0E2A\u0E38\u0E14\u0E01\u0E48\u0E2D\u0E19"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-0.5 bg-slate-100 p-1 rounded-xl", role: "tablist", "aria-label": "\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A\u0E01\u0E32\u0E23\u0E41\u0E2A\u0E14\u0E07\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setViewModePref("card"), title: "\u0E21\u0E38\u0E21\u0E21\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E4C\u0E14", "aria-pressed": viewModePref === "card", className: `p-1.5 rounded-lg transition-all ${viewModePref === "card" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"}` }, /* @__PURE__ */ React.createElement(Icons.LayoutGrid, { size: 18 })), /* @__PURE__ */ React.createElement("button", { onClick: () => setViewModePref("table"), title: "\u0E21\u0E38\u0E21\u0E21\u0E2D\u0E07\u0E15\u0E32\u0E23\u0E32\u0E07", "aria-pressed": viewModePref === "table", className: `p-1.5 rounded-lg transition-all ${viewModePref === "table" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"}` }, /* @__PURE__ */ React.createElement(Icons.List, { size: 18 }))), /* @__PURE__ */ React.createElement("button", { onClick: () => loadData(activeTab, true), className: `p-2.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all ${isRefreshing ? "animate-spin" : ""}` }, /* @__PURE__ */ React.createElement(Icons.RefreshCw, { size: 20 })), /* @__PURE__ */ React.createElement("button", { onClick: toggleSelectMode, title: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E25\u0E32\u0E22\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23", className: `p-2.5 rounded-xl transition-all ${selectMode ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700 hover:bg-slate-100"}` }, /* @__PURE__ */ React.createElement(Icons.CheckSquare, { size: 20 })), /* @__PURE__ */ React.createElement(Button, { onClick: () => {
+    setEditingRowIndex(null);
+    setModalOpen(true);
+  }, className: "rounded-xl shadow-lg shadow-rose-300/50 bg-[#215E61] hover:bg-[#1a4a4d] text-white border-none h-10 px-5" }, /* @__PURE__ */ React.createElement(Icons.Plus, { size: 18, className: "mr-2" }), " Add")), /* @__PURE__ */ React.createElement("div", { className: "flex md:hidden flex-col gap-2 w-full border-t border-slate-100 pt-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement(FilterDropdown, { value: statusFilter, onChange: handleStatusFilterChange, options: window.COLUMN_CONFIG["\u0E2A\u0E16\u0E32\u0E19\u0E30"].options.filter((o) => o !== "-") })), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    setSortOrder((o) => o === "newest" ? "oldest" : "newest");
+    setCurrentPage(1);
+  }, title: `\u0E25\u0E33\u0E14\u0E31\u0E1A: ${sortOrder === "newest" ? "\u0E43\u0E2B\u0E21\u0E48\u0E2A\u0E38\u0E14\u0E01\u0E48\u0E2D\u0E19" : "\u0E40\u0E01\u0E48\u0E32\u0E2A\u0E38\u0E14\u0E01\u0E48\u0E2D\u0E19"} \u2014 \u0E01\u0E14\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E2A\u0E25\u0E31\u0E1A`, "aria-label": `\u0E25\u0E33\u0E14\u0E31\u0E1A\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19: ${sortOrder === "newest" ? "\u0E43\u0E2B\u0E21\u0E48\u0E2A\u0E38\u0E14\u0E01\u0E48\u0E2D\u0E19" : "\u0E40\u0E01\u0E48\u0E32\u0E2A\u0E38\u0E14\u0E01\u0E48\u0E2D\u0E19"} \u2014 \u0E01\u0E14\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E2A\u0E25\u0E31\u0E1A`, className: "shrink-0 w-11 h-11 flex flex-col items-center justify-center rounded-xl bg-slate-50 text-slate-600 hover:bg-slate-100 transition-all" }, /* @__PURE__ */ React.createElement(Icons.ArrowUpDown, { size: 16 }), /* @__PURE__ */ React.createElement("span", { className: "text-[9px] font-bold leading-none mt-0.5" }, sortOrder === "newest" ? "\u0E43\u0E2B\u0E21\u0E48" : "\u0E40\u0E01\u0E48\u0E32")), /* @__PURE__ */ React.createElement("button", { onClick: toggleSelectMode, title: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E25\u0E32\u0E22\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23", className: `shrink-0 w-11 h-11 flex items-center justify-center rounded-xl transition-all ${selectMode ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700 hover:bg-slate-100"}` }, /* @__PURE__ */ React.createElement(Icons.CheckSquare, { size: 20 })), /* @__PURE__ */ React.createElement("button", { onClick: () => loadData(activeTab, true), className: `shrink-0 w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all ${isRefreshing ? "animate-spin" : ""}` }, /* @__PURE__ */ React.createElement(Icons.RefreshCw, { size: 20 }))), /* @__PURE__ */ React.createElement("div", { className: "relative w-full" }, /* @__PURE__ */ React.createElement(Icons.Search, { size: 16, className: "absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" }), /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "Search...", value: searchTerm, onChange: (e) => setSearchTerm(e.target.value), className: "w-full pl-9 pr-4 py-3 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" })))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-3 overflow-x-auto no-scrollbar pb-0.5" }, /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-bold text-slate-400 uppercase tracking-wide shrink-0 pr-1 hidden sm:inline" }, "\u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07"), [
+    { key: "follow_up", label: "\u0E15\u0E49\u0E2D\u0E07\u0E15\u0E32\u0E21\u0E07\u0E32\u0E19", icon: /* @__PURE__ */ React.createElement(Icons.Package, { size: 13 }), count: quickCounts.follow_up, cls: "bg-violet-50 text-violet-700 border-violet-200", activeCls: "bg-violet-600 text-white border-violet-600" },
+    { key: "stale_waiting", label: `\u0E15\u0E32\u0E21\u0E44\u0E14\u0E49\u0E41\u0E25\u0E49\u0E27 (${STALE_WAIT_DAYS} \u0E27\u0E31\u0E19+)`, icon: /* @__PURE__ */ React.createElement(Icons.Clock, { size: 13 }), count: quickCounts.stale_waiting, cls: "bg-rose-50 text-rose-700 border-rose-200", activeCls: "bg-rose-600 text-white border-rose-600" },
+    { key: "waiting", label: "\u0E23\u0E2D\u0E15\u0E2D\u0E1A", icon: /* @__PURE__ */ React.createElement(Icons.MoreHorizontal, { size: 13 }), count: quickCounts.waiting, cls: "bg-indigo-50 text-indigo-700 border-indigo-200", activeCls: "bg-indigo-600 text-white border-indigo-600" },
+    { key: "pending_request", label: "\u0E23\u0E2D\u0E02\u0E2D\u0E2A\u0E34\u0E19\u0E04\u0E49\u0E32", icon: /* @__PURE__ */ React.createElement(Icons.Target, { size: 13 }), count: quickCounts.pending_request, cls: "bg-cyan-50 text-cyan-700 border-cyan-200", activeCls: "bg-cyan-600 text-white border-cyan-600" }
+  ].map((chip) => {
+    const active = quickFilter === chip.key;
+    return /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: chip.key,
+        onClick: () => handleQuickFilter(chip.key),
+        "aria-pressed": active,
+        className: `shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 ${active ? chip.activeCls + " shadow-md" : chip.cls + " hover:brightness-95"}`
+      },
+      chip.icon,
+      chip.label,
+      /* @__PURE__ */ React.createElement("span", { className: `ml-0.5 min-w-[18px] text-center px-1 rounded-md text-[10px] ${active ? "bg-white/25" : "bg-white/70"}` }, chip.count)
+    );
+  }), quickFilter && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    setQuickFilter(null);
+    setCurrentPage(1);
+  }, className: "shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors" }, /* @__PURE__ */ React.createElement(Icons.X, { size: 13 }), " \u0E25\u0E49\u0E32\u0E07"), /* @__PURE__ */ React.createElement("div", { className: "w-px h-5 bg-slate-200 mx-1 shrink-0" }), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => {
+        setHideBlank((v) => !v);
+        setCurrentPage(1);
+      },
+      "aria-pressed": hideBlank,
+      title: "\u0E0B\u0E48\u0E2D\u0E19\u0E41\u0E16\u0E27\u0E17\u0E35\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E01\u0E23\u0E2D\u0E01\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25 (\u0E21\u0E35\u0E41\u0E04\u0E48\u0E40\u0E25\u0E02\u0E25\u0E33\u0E14\u0E31\u0E1A/\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48)",
+      className: `shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 ${hideBlank ? "bg-slate-800 text-white border-slate-800 shadow-md" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`
+    },
+    /* @__PURE__ */ React.createElement(Icons.Eye, { size: 13 }),
+    " \u0E0B\u0E48\u0E2D\u0E19\u0E41\u0E16\u0E27\u0E27\u0E48\u0E32\u0E07",
+    quickCounts.blank > 0 && /* @__PURE__ */ React.createElement("span", { className: `ml-0.5 min-w-[18px] text-center px-1 rounded-md text-[10px] ${hideBlank ? "bg-white/25" : "bg-slate-100"}` }, quickCounts.blank)
+  )), selectMode && /* @__PURE__ */ React.createElement("div", { className: "bg-slate-900 text-white rounded-2xl px-4 py-3 mt-3 flex items-center gap-2 sm:gap-3 shadow-lg animate-enter" }, /* @__PURE__ */ React.createElement("button", { onClick: toggleSelectMode, className: "p-2 hover:bg-white/10 rounded-lg shrink-0" }, /* @__PURE__ */ React.createElement(Icons.X, { size: 18 })), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-bold flex-1 whitespace-nowrap" }, selectedRows.size, " \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01"), /* @__PURE__ */ React.createElement("button", { onClick: toggleSelectAllVisible, className: "text-xs font-bold text-slate-300 hover:text-white underline underline-offset-2 hidden sm:block shrink-0" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E19\u0E49\u0E32"), /* @__PURE__ */ React.createElement(BulkStatusButton, { onSelect: handleBulkStatusUpdate, disabled: isBulkSubmitting || selectedRows.size === 0 }), /* @__PURE__ */ React.createElement("button", { onClick: handleBulkDelete, disabled: isBulkSubmitting || selectedRows.size === 0, className: "w-11 h-11 shrink-0 flex items-center justify-center bg-red-500 hover:bg-red-600 rounded-xl disabled:opacity-40 transition-colors" }, /* @__PURE__ */ React.createElement(Icons.Trash2, { size: 18 })))), view === "list" && !selectMode && /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => {
+        setEditingRowIndex(null);
+        setModalOpen(true);
+      },
+      className: "md:hidden fixed bottom-6 right-5 z-40 w-14 h-14 rounded-full bg-[#215E61] hover:bg-[#1a4a4d] text-white shadow-xl shadow-rose-300/50 flex items-center justify-center active:scale-95 transition-all",
+      "aria-label": "Add new record"
+    },
+    /* @__PURE__ */ React.createElement(Icons.Plus, { size: 26 })
+  ), /* @__PURE__ */ React.createElement("main", { className: "flex-1 px-6 pb-6 pt-0 min-h-0" }, view === "list" ? isLoading ? /* @__PURE__ */ React.createElement(SkeletonLoader, { mode: viewMode === "card" ? "card" : "table" }) : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-[32px] h-full shadow-sm border border-slate-100 flex flex-col overflow-hidden relative animate-enter" }, /* @__PURE__ */ React.createElement("div", { className: "px-6 pt-4 pb-2 border-b border-slate-50 flex items-center justify-between bg-white z-10" }, /* @__PURE__ */ React.createElement(QuickStats, { rows: filteredRows, headers })), statusFilter !== "ALL" && /* @__PURE__ */ React.createElement("div", { className: "bg-slate-900 text-white text-xs font-bold px-4 py-1.5 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Icons.Filter, { size: 12 }), /* @__PURE__ */ React.createElement("span", null, "Filtering: ", /* @__PURE__ */ React.createElement("span", { className: "text-amber-300" }, statusFilter === "Replied" ? "\u0E15\u0E2D\u0E1A\u0E01\u0E25\u0E31\u0E1A\u0E41\u0E25\u0E49\u0E27" : statusFilter === "No Status" ? "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E16\u0E32\u0E19\u0E30" : statusFilter))), /* @__PURE__ */ React.createElement("button", { onClick: clearFilters, className: "hover:text-amber-300" }, /* @__PURE__ */ React.createElement(Icons.X, { size: 14 }))), filteredRows.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { onReset: clearFilters }) : viewMode === "table" ? /* @__PURE__ */ React.createElement("div", { className: "stagger-appear flex-1 flex flex-col min-h-0 overflow-hidden" }, /* @__PURE__ */ React.createElement(
+    CRMTable,
+    {
+      headers,
+      rows: paginatedItems.map((i) => i.data),
+      loadingRows: loadingCells,
+      onUpdateCell: (rIdx, cIdx, val) => handleCellUpdate(paginatedItems[rIdx].originalIndex, cIdx, val),
+      onEditRow: (rIdx) => {
+        setEditingRowIndex(paginatedItems[rIdx].originalIndex);
+        setModalOpen(true);
+      },
+      onDeleteRow: (rIdx) => handleDelete(paginatedItems[rIdx].originalIndex),
+      onOpenInfo: (rIdx) => {
+        setInfoRowIndex(paginatedItems[rIdx].originalIndex);
+      },
+      selectMode,
+      isRowSelected: (rIdx) => selectedRows.has(paginatedItems[rIdx].originalIndex),
+      onToggleSelect: (rIdx) => toggleRowSelect(paginatedItems[rIdx].originalIndex),
+      onToggleSelectAll: toggleSelectAllVisible,
+      allVisibleSelected: paginatedItems.length > 0 && paginatedItems.every((i) => selectedRows.has(i.originalIndex))
+    }
+  )) : /* @__PURE__ */ React.createElement(
+    PullToRefresh,
+    {
+      onRefresh: () => loadData(activeTab, true),
+      refreshing: isRefreshing,
+      scrollClassName: "stagger-appear h-full overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 content-start scroll-smooth bg-slate-50/50"
+    },
+    paginatedItems.map((item, index) => /* @__PURE__ */ React.createElement("div", { key: item.originalIndex, className: "card-item" }, /* @__PURE__ */ React.createElement(MobileCard, { row: item.data, headers, rowIndex: item.originalIndex, loadingRows: loadingCells, onUpdateCell: (rIdx, cIdx, val) => handleCellUpdate(rIdx, cIdx, val), onEdit: () => {
+      setEditingRowIndex(item.originalIndex);
+      setModalOpen(true);
+    }, onDelete: () => handleDelete(item.originalIndex), onOpenInfo: () => setInfoRowIndex(item.originalIndex), selectMode, selected: selectedRows.has(item.originalIndex), onToggleSelect: () => toggleRowSelect(item.originalIndex), enableSwipe: isNarrowScreen, expanded: isNarrowScreen ? expandedRows.has(item.originalIndex) : true, onToggleExpand: isNarrowScreen ? () => toggleRowExpand(item.originalIndex) : void 0 })))
+  ), filteredRows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "shrink-0 px-6 py-4 border-t border-slate-50 flex items-center justify-between bg-white z-20" }, /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-slate-500 font-bold uppercase tracking-widest" }, "SHOWING ", Math.min(filteredRows.length, (currentPage - 1) * ITEMS_PER_PAGE + 1), "-", Math.min(filteredRows.length, currentPage * ITEMS_PER_PAGE), " OF ", filteredRows.length), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Button, { variant: "outline", size: "icon", onClick: () => setCurrentPage(1), disabled: currentPage === 1, title: "\u0E2B\u0E19\u0E49\u0E32\u0E41\u0E23\u0E01", "aria-label": "\u0E44\u0E1B\u0E2B\u0E19\u0E49\u0E32\u0E41\u0E23\u0E01", className: "rounded-lg border-slate-200 text-slate-500 hover:text-slate-700" }, /* @__PURE__ */ React.createElement(Icons.ChevronsLeft, { size: 16 })), /* @__PURE__ */ React.createElement(Button, { variant: "outline", size: "sm", onClick: () => setCurrentPage((p) => Math.max(1, p - 1)), disabled: currentPage === 1, className: "rounded-lg border-slate-200 h-9 px-4 text-xs font-bold text-slate-500 hover:text-slate-700" }, "Prev"), /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold text-slate-600 tabular-nums px-1.5 min-w-[68px] text-center" }, "\u0E2B\u0E19\u0E49\u0E32 ", currentPage, " / ", totalPages || 1), /* @__PURE__ */ React.createElement(Button, { variant: "outline", size: "sm", onClick: () => setCurrentPage((p) => Math.min(totalPages, p + 1)), disabled: currentPage === totalPages || totalPages === 0, className: "rounded-lg border-slate-200 h-9 px-4 text-xs font-bold text-slate-500 hover:text-slate-700" }, "Next"), /* @__PURE__ */ React.createElement(Button, { variant: "outline", size: "icon", onClick: () => setCurrentPage(totalPages), disabled: currentPage === totalPages || totalPages === 0, title: "\u0E2B\u0E19\u0E49\u0E32\u0E2A\u0E38\u0E14\u0E17\u0E49\u0E32\u0E22", "aria-label": "\u0E44\u0E1B\u0E2B\u0E19\u0E49\u0E32\u0E2A\u0E38\u0E14\u0E17\u0E49\u0E32\u0E22", className: "rounded-lg border-slate-200 text-slate-500 hover:text-slate-700" }, /* @__PURE__ */ React.createElement(Icons.ChevronsRight, { size: 16 }))))) : /* @__PURE__ */ React.createElement("div", { className: "h-full overflow-y-auto" }, loadingDashboard || !rechartsReady ? /* @__PURE__ */ React.createElement(SkeletonLoader, { mode: "dashboard" }) : /* @__PURE__ */ React.createElement(
+    Dashboard,
+    {
+      data: dashboardData,
+      filterType: dashboardFilterType,
+      filterValue: dashboardFilterValue,
+      onFilterChange: (t, v) => {
+        setDashboardFilterType(t);
+        setDashboardFilterValue(v);
+      },
+      loading: false,
+      allSheets,
+      onDrillDown: handleDashboardDrillDown
+    }
+  ))), /* @__PURE__ */ React.createElement(EditModal, { isOpen: modalOpen, onClose: () => setModalOpen(false), onSubmit: handleFormSubmit, headers, initialData: editingRowIndex !== null ? rows[editingRowIndex] : null, isSubmitting, formNonce }), /* @__PURE__ */ React.createElement(InfoModal, { isOpen: infoRowIndex !== null, onClose: () => setInfoRowIndex(null), data: infoRowIndex !== null ? rows[infoRowIndex] : null, headers }), /* @__PURE__ */ React.createElement(AlertModal, { isOpen: alertConfig.isOpen, type: alertConfig.type, title: alertConfig.title, description: alertConfig.description, confirmText: alertConfig.confirmText, cancelText: alertConfig.cancelText, onConfirm: () => closeAlert("confirmed"), onCancel: () => closeAlert("cancelled") }), /* @__PURE__ */ React.createElement("div", { className: "fixed bottom-6 right-6 flex flex-col gap-2 z-[10001] pointer-events-none" }, toasts.map((t) => /* @__PURE__ */ React.createElement(Toast, { key: t.id, ...t, onClose: closeToast }))));
+};
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(/* @__PURE__ */ React.createElement(App, null));
+
+</script>
+        

@@ -1,0 +1,549 @@
+
+<script>
+// ------------------------------------------
+// 1. CONFIGURATION
+// ------------------------------------------
+
+window.COLUMN_CONFIG = {
+    "เฉลี่ยวิวคร่าวๆ": { type: "select", options: ["-","หลักร้อย", "หลักพัน", "หลักหมื่น", "หลักแสน", "หลักล้าน"] },
+    "สไตล์ช่อง": { type: "select", options: ["-","ไลฟ์สไตล์", "รีวิวสินค้า", "เทคนิคออกกำลังกาย", "ความรู้", "บันเทิง"] },
+    "ติดต่อกันช่องทางไหน": { type: "select", options: ["-","Line", "Facebook", "Email", "โทรศัพท์", "Tiktok", "Instagram"] },
+    "ทัก/ยังไม่ทัก": { type: "select", options: ["-","ยังไม่ทัก", "ทักแล้ว"] },
+    "สถานะ": { type: "select", options: ["-", "รับข้อเสนอแต่ยังไม่กดขอสินค้า", "รับข้อเสนอ", "กำลังตัดสินใจ", "ไม่รับข้อเสนอ", "ไม่รับ / มีเรทการ์ด", "อ่าน แต่ไม่ตอบ", "ไม่อ่าน", "สนใจ", "ดีลจบ"] },
+    "Commission": { type: "select", options: ["-","10%", "15%", "20%"] },
+    "คอมเมนท์ให้ตอบแชท": { type: "select", options: ["-", "คอมเมนท์แล้ว", "ยังไม่เมนท์"] },
+    "ตามแชทเอาคำตอบ": { type: "select", options: ["-", "ตามแล้ว", "ยังไม่ตาม"] },
+    "ส่งของถึงยัง": { type: "select", options: ["-", "ยังไม่ส่ง", "ส่งแล้ว"] },
+    "ลงคลิปยัง": { type: "select", options: ["-", "ยังไม่ลง", "ลงแล้ว"] },
+    "ได้รับของวันไหน": { type: "date" },
+    "วันที่": { type: "date" },
+    "ลำดับ": { type: "text" },
+    "จำนวน": { type: "text" }
+};
+
+// 🟢 รายชื่อคอลัมน์ที่จะซ่อนจาก "ตารางหลัก" (ไม่แสดงเป็นคอลัมน์ในตาราง/การ์ด)
+window.HIDDEN_COLUMNS = [
+    "Campaign",
+    "Member",
+    "Rate Card",
+    "สไตล์ช่อง 20%",
+    "เค้าชอบอะไรเป็นพิเศษ",
+    "มีอาชีพอื่นไหม",
+    "วันเกิดวันที่",
+    "มีลูกกี่คน",
+    "ลูกชื่ออะไร",
+    "ที่อยุ่",
+    "ที่อยู่"
+];
+
+// 🟢 คอลัมน์ที่จะ "แสดงในหน้าต่างข้อมูลเพิ่มเติม" เท่านั้น (นอกลิสต์นี้จะไม่โผล่ใน popup)
+// ต้องการให้เหลือแค่ Rate Card อย่างเดียว — ที่เหลือถูกซ่อนจากทั้งตารางและ popup
+window.INFO_DETAIL_COLUMNS = [
+    "Rate Card"
+];
+
+window.getColumnConfig = function(headerName) {
+    if (!headerName) return null;
+    var cleanHeader = headerName.trim();
+    var config = window.COLUMN_CONFIG;
+    
+    if (config[cleanHeader]) return { key: cleanHeader, config: config[cleanHeader] };
+    
+    // Fuzzy Match
+    if (cleanHeader.includes("สถานะ")) return { key: "สถานะ", config: config["สถานะ"] };
+    if (cleanHeader.includes("ทัก")) return { key: "ทัก/ยังไม่ทัก", config: config["ทัก/ยังไม่ทัก"] };
+    if (cleanHeader.includes("คอมเมนท์")) return { key: "คอมเมนท์ให้ตอบแชท", config: config["คอมเมนท์ให้ตอบแชท"] };
+    if (cleanHeader.includes("ตามแชท") || cleanHeader.includes("ตามงาน")) return { key: "ตามแชทเอาคำตอบ", config: config["ตามแชทเอาคำตอบ"] };
+    if (cleanHeader.includes("วิว")) return { key: "เฉลี่ยวิวคร่าวๆ", config: config["เฉลี่ยวิวคร่าวๆ"] };
+    if (cleanHeader.includes("สไตล์")) return { key: "สไตล์ช่อง", config: config["สไตล์ช่อง"] };
+    if (cleanHeader.includes("ติดต่อกัน")) return { key: "ติดต่อกันช่องทางไหน", config: config["ติดต่อกันช่องทางไหน"] };
+    if (cleanHeader.includes("Commission")) return { key: "Commission", config: config["Commission"] };
+    if (cleanHeader.includes("ได้รับของ")) return { key: "ได้รับของวันไหน", config: config["ได้รับของวันไหน"] };
+    if (cleanHeader.includes("ส่งของ")) return { key: "ส่งของถึงยัง", config: config["ส่งของถึงยัง"] };
+    if (cleanHeader.includes("ลงคลิป")) return { key: "ลงคลิปยัง", config: config["ลงคลิปยัง"] };
+
+    return null;
+};
+
+// วันที่วันนี้แบบ local timezone (YYYY-MM-DD) — เลี่ยง toISOString() ที่คืนค่า UTC ทำให้ช่วง
+// เที่ยงคืน–07:00 ตามเวลาไทย (UTC+7) ได้วันที่ย้อนหลังไป 1 วัน
+window.todayISO = function() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
+
+// ------------------------------------------
+// TIKTOK / DISPLAY NAME HELPERS
+// ------------------------------------------
+// ดึง "@ชื่อช่อง" จากลิงก์ TikTok (หรือค่าที่กรอกในคอลัมน์ Tiktok)
+//  - ลิงก์เต็ม https://www.tiktok.com/@skay5546?lang=th  → "@skay5546"
+//  - @skay5546 (มีอยู่แล้ว)                               → "@skay5546"
+//  - skay5546 (handle ล้วน)                               → "@skay5546"
+//  - ลิงก์ย่อ vt.tiktok.com/ZSxxxx (ไม่มี username)        → "" (ดึงไม่ได้)
+//  - ข้อความอื่น เช่นชื่อภาษาไทย                          → คืนตามเดิม
+window.extractTiktokUsername = function(val) {
+    var s = String(val == null ? '' : val).trim();
+    if (!s || s === '-') return '';
+    var m = s.match(/tiktok\.com\/@([\w.\-]+)/i);
+    if (m) return '@' + m[1];
+    if (/^https?:\/\//i.test(s)) return '';        // เป็นลิงก์แต่ไม่มี @username ให้ดึง
+    if (/^@[\w.\-]+$/.test(s)) return s;            // @handle อยู่แล้ว
+    if (/^[\w.\-]+$/.test(s)) return '@' + s;       // handle ล้วน (อังกฤษ/ตัวเลข) → เติม @
+    return s;                                       // อย่างอื่น (เช่นชื่อภาษาไทย) แสดงตามเดิม
+};
+
+// ชื่อที่ใช้แสดง: ชื่อเล่น → @ชื่อช่องจากลิงก์ TikTok → ช่องทางติดต่อ → "ไม่ระบุชื่อ"
+// อ่านหัวคอลัมน์แบบยืดหยุ่น (case-insensitive) เพื่อทนต่อชีตที่หัวคอลัมน์ต่างกัน
+window.getDisplayName = function(headers, row) {
+    if (!headers || !row) return 'ไม่ระบุชื่อ';
+    var findVal = function(pred) {
+        var i = headers.findIndex(function(h){ return h && pred(String(h).toLowerCase()); });
+        return i === -1 ? '' : String(row[i] == null ? '' : row[i]).trim();
+    };
+    var isLinkCol = function(h){ return h.indexOf('tiktok') > -1 || h.indexOf('ลิงค์') > -1 || h.indexOf('ลิงก์') > -1; };
+    // ชื่อเล่น (ไม่เอาคอลัมน์ที่เป็นลิงก์/tiktok)
+    var nick = findVal(function(h){ return h.indexOf('ชื่อเล่น') > -1 && !isLinkCol(h); });
+    if (nick && nick !== '-') return nick;
+    // ลิงก์ TikTok → @ชื่อช่อง
+    var uname = window.extractTiktokUsername(findVal(isLinkCol));
+    if (uname) return uname;
+    // ช่องทางติดต่อ (เช่น Line id)
+    var contact = findVal(function(h){ return h.indexOf('ช่องทางติดต่อ') > -1; });
+    if (contact && contact !== '-') return contact;
+    return 'ไม่ระบุชื่อ';
+};
+
+// ------------------------------------------
+// CHECKLIST LOGIC (derived progress across the outreach → fulfillment pipeline)
+// ------------------------------------------
+// Reads whichever of these columns exist on a sheet (by fuzzy header match) and
+// reports done/pending for each step found — sheets missing a column simply skip that step.
+window.getChecklistItems = function(headers, row) {
+    if (!headers || !row) return [];
+    const find = (pred) => headers.findIndex(h => h && pred(String(h)));
+    const items = [];
+    const pushIf = (idx, label, doneFn) => {
+        if (idx === -1) return;
+        const v = row[idx];
+        const done = doneFn(String(v || ''));
+        // Can this step be ticked directly? Only when the column is a binary select with
+        // exactly one "done" option and one "not-done" option (derived from its real options,
+        // never hardcoded). Multi-state fields (สถานะ) and dates stay read-only display chips.
+        let toggleable = false, doneValue = null, undoneValue = null;
+        const cfg = window.getColumnConfig ? window.getColumnConfig(String(headers[idx])) : null;
+        const opts = cfg && cfg.config && cfg.config.type === 'select'
+            ? (cfg.config.options || []).filter(o => o !== '-')
+            : [];
+        if (opts.length === 2) {
+            const doneOpts = opts.filter(o => doneFn(String(o)));
+            const undoneOpts = opts.filter(o => !doneFn(String(o)));
+            if (doneOpts.length === 1 && undoneOpts.length === 1) {
+                toggleable = true;
+                doneValue = doneOpts[0];
+                undoneValue = undoneOpts[0];
+            }
+        }
+        items.push({ label, value: v, done, idx, toggleable, doneValue, undoneValue });
+    };
+
+    pushIf(find(h => h.includes('ทัก')), 'ทักแชท', v => v.includes('ทักแล้ว'));
+    pushIf(find(h => h.includes('คอมเมนท์')), 'คอมเมนท์', v => v.includes('คอมเมนท์แล้ว'));
+    pushIf(find(h => h.includes('ตามแชท') || h.includes('ตามงาน')), 'ตามแชท', v => v.includes('ตามแล้ว'));
+    pushIf(find(h => h.includes('สถานะ')), 'ปิดดีล / รับข้อเสนอ', v => v.includes('ดีลจบ') || (v.includes('รับข้อเสนอ') && !v.includes('ไม่รับ') && !v.includes('ยังไม่กดขอ')));
+    pushIf(find(h => h.includes('ส่งของ')), 'ส่งของถึงยัง', v => v.includes('ส่งแล้ว'));
+    pushIf(find(h => h.includes('ได้รับของ')), 'ได้รับของวันไหน', v => v.trim() !== '' && v.trim() !== '-');
+    pushIf(find(h => h.includes('ลงคลิป')), 'ลงคลิปยัง', v => v.includes('ลงแล้ว'));
+
+    return items;
+};
+
+// ------------------------------------------
+// PIPELINE STAGE (single at-a-glance summary used by the card view)
+// ------------------------------------------
+// Collapses ทัก/สถานะ/ส่งของ/ลงคลิป into one of 5 stages, or a "dropped" outcome
+// (rejected / ghosted) shown as a distinct chip instead of pipeline progress.
+window.getPipelineStage = function(headers, row) {
+    if (!headers || !row) return null;
+    const find = (pred) => headers.findIndex(h => h && pred(String(h)));
+    const val = (idx) => idx > -1 ? String(row[idx] || '').trim() : '';
+
+    const contacted = val(find(h => h.includes('ทัก')));
+    const status = val(find(h => h.includes('สถานะ')));
+    const shipped = val(find(h => h.includes('ส่งของ')));
+    const received = val(find(h => h.includes('ได้รับของ')));
+    const clip = val(find(h => h.includes('ลงคลิป')));
+
+    if (status.includes('ไม่รับ') || status.includes('ปฏิเสธ') || status.includes('เรทการ์ด')) {
+        return { index: 1, label: 'ไม่รับข้อเสนอ', dropped: true };
+    }
+    if (status.includes('ไม่อ่าน') || status.includes('ไม่ตอบ')) {
+        return { index: 1, label: status.includes('ไม่อ่าน') ? 'ไม่อ่าน' : 'อ่านแต่ไม่ตอบ', dropped: true };
+    }
+    if (status.includes('ดีลจบ')) return { index: 4, label: 'ดีลจบ', dropped: false };
+    if (status.includes('รับข้อเสนอ')) {
+        if (shipped.includes('ส่งแล้ว') || clip.includes('ลงแล้ว') || (received && received !== '-')) {
+            return { index: 3, label: 'ส่งของ/รอคลิป', dropped: false };
+        }
+        return { index: 2, label: 'รับข้อเสนอ', dropped: false };
+    }
+    if (status.includes('กำลังตัดสินใจ') || status.includes('สนใจ')) {
+        return { index: 1, label: 'กำลังตัดสินใจ', dropped: false };
+    }
+    if (contacted.includes('ทักแล้ว')) return { index: 1, label: 'ทักแล้ว/รอตอบ', dropped: false };
+    return { index: 0, label: 'ยังไม่ทัก', dropped: false };
+};
+
+window.getStageChipClasses = function(stage) {
+    if (!stage) return "bg-slate-100 text-slate-500 border-slate-200";
+    if (stage.dropped) return "bg-rose-50 text-rose-600 border-rose-200";
+    switch (stage.index) {
+        case 0: return "bg-slate-100 text-slate-500 border-slate-200";
+        case 1: return "bg-indigo-50 text-indigo-600 border-indigo-200";
+        case 2: return "bg-cyan-50 text-cyan-700 border-cyan-200";
+        case 3: return "bg-amber-50 text-amber-700 border-amber-200";
+        case 4: return "bg-emerald-50 text-emerald-700 border-emerald-200";
+        default: return "bg-slate-100 text-slate-500 border-slate-200";
+    }
+};
+
+// ------------------------------------------
+// COLOR LOGIC
+// ------------------------------------------
+window.getStatusColor = function(val, headerName) {
+    var s = String(val || "").toLowerCase();
+    var t = String(headerName || "").toLowerCase();
+
+    if (s === "-" || s === "") return "bg-slate-50 border-slate-200 text-slate-400";
+
+    // 1. Status
+    if (t.includes("สถานะ")) {
+        // Deal Closed / Finished
+        if (s.includes("ดีลจบ") || s.includes("อนุมัติ")) return "bg-green-100 text-green-800 border-green-200 font-bold";
+
+        // 🟢 Specific Requirement: Accepted but NO product request -> Distinct Cyan/Blue
+        if (s.includes("รับข้อเสนอ") && s.includes("ยังไม่กดขอ")) {
+            return "bg-cyan-100 text-cyan-700 border-cyan-200 font-bold ring-1 ring-cyan-400/30";
+        }
+        
+        // Success / Positive (Just Accepted)
+        if (s.includes("รับข้อเสนอ") && !s.includes("ไม่รับ")) return "bg-emerald-100 text-emerald-700 border-emerald-200";
+        
+        // Negative
+        if (s.includes("ไม่รับ") || s.includes("ปฏิเสธ") || s.includes("เรทการ์ด")) return "bg-rose-100 text-rose-700 border-rose-200";
+        
+        // Pending
+        if (s.includes("กำลังตัดสินใจ") || s.includes("รอ") || s.includes("สนใจ")) return "bg-amber-100 text-amber-700 border-amber-200";
+        
+        // Ghosted
+        if (s.includes("อ่าน") || s.includes("ไม่อ่าน") || s.includes("ไม่ตอบ")) return "bg-slate-100 text-slate-600 border-slate-200";
+    }
+
+    // 2. Actions (ทัก/คอมเมนท์/ตาม + fulfillment steps: ส่งของ/ลงคลิป)
+    if (t.includes("ทัก") || t.includes("คอมเมนท์") || t.includes("ตาม") || t.includes("ส่งของ") || t.includes("ลงคลิป")) {
+        if (s.includes("แล้ว") || s.includes("ทักแล้ว") || s.includes("คอมเมนท์แล้ว") || s.includes("ตามแล้ว") || s.includes("ส่งแล้ว") || s.includes("ลงแล้ว") || s.includes("ปกติ")) return "bg-emerald-50 text-emerald-600 border-emerald-200 font-medium";
+        if (s.includes("ยังไม่") || s.includes("ช้า")) return "bg-orange-50 text-orange-600 border-orange-200";
+        if (s.includes("อ่านไม่ตอบ")) return "bg-red-50 text-red-600 border-red-200";
+    }
+
+    // 3. Contact
+    if (t.includes("ติดต่อ")) {
+        if (s.includes("line")) return "bg-[#06c755]/10 text-[#06c755] border-[#06c755]/20 font-bold";
+        if (s.includes("facebook")) return "bg-[#1877f2]/10 text-[#1877f2] border-[#1877f2]/20 font-bold";
+        if (s.includes("instagram") || s.includes("ig")) return "bg-[#e1306c]/10 text-[#e1306c] border-[#e1306c]/20 font-bold";
+        if (s.includes("tiktok")) return "bg-black/5 text-black border-black/10 font-bold";
+        if (s.includes("email")) return "bg-blue-50 text-blue-700 border-blue-200";
+        if (s.includes("โทร")) return "bg-cyan-50 text-cyan-700 border-cyan-200";
+    }
+
+    // 4. Views (วิว)
+    if (t.includes("วิว")) {
+        if (s.includes("หลักล้าน")) return "bg-rose-100 text-rose-700 border-rose-200 font-bold";
+        if (s.includes("หลักแสน")) return "bg-purple-100 text-purple-700 border-purple-200 font-semibold";
+        if (s.includes("หลักหมื่น")) return "bg-blue-100 text-blue-700 border-blue-200";
+        if (s.includes("หลักพัน")) return "bg-sky-100 text-sky-700 border-sky-200";
+        if (s.includes("หลักร้อย")) return "bg-slate-100 text-slate-600 border-slate-200";
+    }
+
+    // 5. Style (สไตล์)
+    if (t.includes("สไตล์")) {
+        if (s.includes("ไลฟ์สไตล์")) return "bg-orange-100 text-orange-700 border-orange-200";
+        if (s.includes("รีวิว")) return "bg-lime-100 text-lime-700 border-lime-200";
+        if (s.includes("ออกกำลังกาย")) return "bg-teal-100 text-teal-700 border-teal-200";
+        if (s.includes("ความรู้")) return "bg-indigo-100 text-indigo-700 border-indigo-200";
+        if (s.includes("บันเทิง")) return "bg-pink-100 text-pink-700 border-pink-200";
+    }
+
+    // 6. Commission
+    if (t.includes("commission")) {
+        if (s.includes("20%")) return "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200 font-bold";
+        if (s.includes("15%")) return "bg-purple-100 text-purple-700 border-purple-200";
+        if (s.includes("10%")) return "bg-violet-50 text-violet-700 border-violet-200";
+    }
+
+    return "bg-white border-slate-200 text-slate-700";
+};
+
+// ------------------------------------------
+// 2. API SERVICE (Defines window.fetchSheetNames etc.)
+// ------------------------------------------
+
+// Determine Environment
+window.isGAS = typeof google !== 'undefined' && google.script;
+
+// Mock Data Generators (Mock)
+window.generateMockRow = function(id) {
+    var rand = function(arr) { return arr[Math.floor(Math.random() * arr.length)]; };
+    var status = rand(["รับข้อเสนอแต่ยังไม่กดขอสินค้า", "รับข้อเสนอ", "กำลังตัดสินใจ", "ไม่รับข้อเสนอ", "อ่าน แต่ไม่ตอบ", "ดีลจบ"]);
+    var shipped = rand(["ยังไม่ส่ง", "ส่งแล้ว"]);
+    var received = shipped === "ส่งแล้ว" ? new Date().toISOString().split('T')[0] : "";
+    var clip = rand(["ยังไม่ลง", "ลงแล้ว"]);
+
+    // Use string concatenation instead of template literals to avoid syntax errors in some parsers
+    return [
+        id,
+        new Date().toISOString().split('T')[0],
+        1,
+        "Influencer " + id,
+        "https://tiktok.com/@user" + id,
+        Math.floor(Math.random() * 500) + "k",
+        rand(["หลักหมื่น", "หลักแสน", "หลักพัน"]),
+        rand(["ไลฟ์สไตล์", "รีวิวสินค้า"]),
+        rand(["Line", "Facebook", "Instagram"]),
+        "contact_" + id, // Safe string
+        rand(["ทักแล้ว", "ยังไม่ทัก"]),
+        status,
+        rand(["10%", "15%", "-"]),
+        "-",
+        "-",
+        shipped,
+        received,
+        clip,
+        "Bangkok",
+        "0812345678"
+    ];
+};
+
+window.MOCK_HEADERS = ["ลำดับ", "วันที่", "จำนวน", "ชื่อเล่น", "ชื่อเล่นTiktok (วางลิงค์ช่อง)", "จำนวนผู้ติดตาม", "เฉลี่ยวิวคร่าวๆ", "สไตล์ช่อง", "ติดต่อกันช่องทางไหน", "ช่องทางติดต่อ", "ทัก/ยังไม่ทัก", "สถานะ", "Commission", "คอมเมนท์ให้ตอบแชท", "ตามแชทเอาคำตอบ", "ส่งของถึงยัง", "ได้รับของวันไหน", "ลงคลิปยัง", "ที่อยู่", "เบอร์โทร"];
+
+// --- API FUNCTIONS ---
+
+window.fetchSheetNames = async function() {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res); })
+                .withFailureHandler(function(err) { resolve({ success: false, data: [], error: err.message }); })
+                .getSheetNames();
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 400); });
+        return { 
+            success: true, 
+            data: [
+                { name: "อาร์ม", source: "Team A", id: "1", tabName: "อาร์ม" },
+                { name: "ก้อ", source: "Team A", id: "1", tabName: "ก้อ" },
+                { name: "คิม", source: "Team B", id: "2", tabName: "คิม" },
+                { name: "ตี๋น้อย", source: "Team B", id: "2", tabName: "ตี๋น้อย" },
+                { name: "เมย์", source: "Team C", id: "3", tabName: "เมย์" }
+            ] 
+        };
+    }
+};
+
+window.fetchSheetData = async function(sheetName) {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) {
+                    if (!res) resolve({ headers: [], data: [], success: false, error: "No response from server" });
+                    else resolve(res);
+                })
+                .withFailureHandler(function(err) { resolve({ headers: [], data: [], error: err.message || "Failed to fetch data" }); })
+                .getData(sheetName);
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 600); });
+        var rows = [];
+        for(var i=1; i<=15; i++) { rows.push(window.generateMockRow(i)); }
+        return { headers: window.MOCK_HEADERS, data: rows, success: true };
+    }
+};
+
+window.fetchDashboardData = async function() {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res); })
+                .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
+                .getDashboardData();
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 800); });
+        var mockMembers = ["อาร์ม", "ก้อ", "คิม", "ตี๋น้อย", "เมย์"];
+        var thisMonth = new Date().toISOString().slice(0, 7);
+        var lastMonthDate = new Date(); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
+        var lastMonth = lastMonthDate.toISOString().slice(0, 7);
+
+        var makeBucket = function(seed) {
+            var rand = function(n) { return Math.floor((Math.sin(seed++) * 0.5 + 0.5) * n); };
+            var total = 20 + rand(60);
+            var closed = rand(Math.floor(total * 0.3));
+            var accepted = rand(Math.floor(total * 0.3));
+            var shipped = rand(closed + 1);
+            var clip = rand(shipped + 1);
+            return {
+                total: total,
+                byStatus: { 'รับข้อเสนอแต่ยังไม่กดขอสินค้า': rand(10), 'รับข้อเสนอ': accepted, 'ดีลจบ': closed, 'กำลังตัดสินใจ': rand(15), 'ไม่รับข้อเสนอ': rand(8), 'อ่าน แต่ไม่ตอบ': rand(10) },
+                byPlatform: { 'Line': rand(20), 'Facebook': rand(15), 'Instagram': rand(10) },
+                byCommission: { '10%': rand(10), '15%': rand(10), '20%': rand(5) },
+                byShipped: { 'ส่งแล้ว': shipped, 'ยังไม่ส่ง': total - shipped },
+                byClip: { 'ลงแล้ว': clip, 'ยังไม่ลง': total - clip }
+            };
+        };
+        var emptyBucket = { total: 0, byStatus: {}, byPlatform: {}, byCommission: {}, byShipped: {}, byClip: {} };
+
+        var bySheet = {};
+        var overallAll = JSON.parse(JSON.stringify(emptyBucket));
+        mockMembers.forEach(function(name, i) {
+            var allB = makeBucket(i + 1);
+            var monthB = makeBucket(i + 10);
+            var lastMonthB = makeBucket(i + 20);
+            bySheet[name] = {
+                all: allB, today: makeBucket(i + 30), week: makeBucket(i + 40), month: monthB,
+                history: (function() { var h = {}; h[thisMonth] = monthB; h[lastMonth] = lastMonthB; return h; })(),
+                daily: {}
+            };
+            ['byStatus', 'byPlatform', 'byCommission', 'byShipped', 'byClip'].forEach(function(k) {
+                Object.keys(allB[k]).forEach(function(key) { overallAll[k][key] = (overallAll[k][key] || 0) + allB[k][key]; });
+            });
+            overallAll.total += allB.total;
+        });
+
+        return {
+            success: true,
+            data: {
+                overall: { all: overallAll, today: overallAll, week: overallAll, month: overallAll, history: {}, daily: {} },
+                byTeam: { 'Team A': { all: overallAll, today: overallAll, week: overallAll, month: overallAll, history: {}, daily: {} } },
+                bySheet: bySheet
+            }
+        };
+    }
+};
+
+window.addRow = async function(sheetName, row) {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res); })
+                .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
+                .addData(sheetName, row);
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 400); });
+        return { success: true };
+    }
+};
+
+window.updateRow = async function(sheetName, rowIndex, row) {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res); })
+                .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
+                .updateData(sheetName, rowIndex, row);
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 300); });
+        return { success: true };
+    }
+};
+
+window.deleteRow = async function(sheetName, rowIndex) {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res); })
+                .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
+                .deleteData(sheetName, rowIndex);
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 400); });
+        return { success: true };
+    }
+};
+
+// Re-insert a deleted row at its original position (undo delete)
+window.insertRow = async function(sheetName, rowIndex, row) {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res); })
+                .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
+                .insertRowData(sheetName, rowIndex, row);
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 400); });
+        return { success: true };
+    }
+};
+
+// --- BULK ACTIONS ---
+window.bulkUpdateCell = async function(sheetName, rowIndices, colIndex, value) {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res); })
+                .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
+                .bulkUpdateCell(sheetName, rowIndices, colIndex, value);
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 400); });
+        return { success: true };
+    }
+};
+
+window.bulkDeleteRows = async function(sheetName, rowIndices) {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res); })
+                .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
+                .bulkDeleteRows(sheetName, rowIndices);
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 400); });
+        return { success: true };
+    }
+};
+
+// เช็คว่าครีเอเตอร์ (ลิงก์ TikTok / ชื่อเล่น) มีอยู่ในชีตอื่นแล้วหรือยัง — กันทักซ้ำข้ามทีม
+// คืน { success, matches: [{ sheet, label }] } โดยอิง index ที่ฝั่ง server แคชไว้ (~10 นาที)
+window.checkDuplicate = async function(link, name) {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res || { success: false, matches: [] }); })
+                .withFailureHandler(function(err) { resolve({ success: false, matches: [], error: err.message }); })
+                .checkDuplicate(link, name);
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 150); });
+        return { success: true, matches: [] };
+    }
+};
+
+// 🟢 New Frontend Wrapper for Cache Clearing
+window.clearSystemCache = async function() {
+    if (window.isGAS) {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(res) { resolve(res); })
+                .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
+                .clearSystemCache();
+        });
+    } else {
+        await new Promise(function(r) { setTimeout(r, 500); });
+        return { success: true };
+    }
+};
+</script>

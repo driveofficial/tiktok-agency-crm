@@ -1,0 +1,283 @@
+
+
+    <script>
+(() => {
+  const React = window.React;
+  const Icons = window.Icons;
+  const CountUp = ({ end, duration = 1500 }) => {
+    const [count, setCount] = React.useState(0);
+    React.useEffect(() => {
+      let startTime = null;
+      let animationFrame;
+      const step = (timestamp) => {
+        if (!startTime) startTime = timestamp;
+        const progress = Math.min((timestamp - startTime) / duration, 1);
+        const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+        setCount(Math.floor(ease * end));
+        if (progress < 1) animationFrame = window.requestAnimationFrame(step);
+      };
+      animationFrame = window.requestAnimationFrame(step);
+      return () => window.cancelAnimationFrame(animationFrame);
+    }, [end, duration]);
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, count.toLocaleString());
+  };
+  const EMPTY_BUCKET = { total: 0, byStatus: {}, byPlatform: {}, byCommission: {}, byShipped: {}, byClip: {} };
+  const getBucketForTimeframe = (s, timeFrame, customDateRange) => {
+    if (!s) return EMPTY_BUCKET;
+    if (["all", "today", "week", "month"].includes(timeFrame)) {
+      return s[timeFrame] || EMPTY_BUCKET;
+    }
+    if (timeFrame === "custom") {
+      const curr = { total: 0, byStatus: {}, byPlatform: {}, byCommission: {}, byShipped: {}, byClip: {} };
+      const { start, end } = customDateRange;
+      if (start && end && s.daily) {
+        const startDate = new Date(start);
+        startDate.setHours(0, 0, 0, 0);
+        const endDate = new Date(end);
+        endDate.setHours(23, 59, 59, 999);
+        Object.entries(s.daily).forEach(([dateStr, dailyStats]) => {
+          const d = new Date(dateStr);
+          d.setHours(12, 0, 0, 0);
+          if (d >= startDate && d <= endDate) {
+            curr.total += dailyStats.total;
+            ["byStatus", "byPlatform", "byCommission", "byShipped", "byClip"].forEach((prop) => {
+              Object.entries(dailyStats[prop] || {}).forEach(([k, v]) => {
+                curr[prop][k] = (curr[prop][k] || 0) + v;
+              });
+            });
+          }
+        });
+      }
+      return curr;
+    }
+    return s.history?.[timeFrame] || EMPTY_BUCKET;
+  };
+  const computeKpiFromBucket = (bucket) => {
+    let replied = 0, count_active_accepted = 0, count_accepted_pending_request = 0, count_pending = 0, count_rejected_ratecard = 0, count_rejected_pure = 0, count_ghosted = 0, count_no_status = 0, count_deal_closed = 0;
+    Object.entries(bucket.byStatus || {}).forEach(([k, count]) => {
+      const str = String(k).trim();
+      if (!str || str === "-" || str.toLowerCase() === "unknown") {
+        count_no_status += count;
+        return;
+      }
+      if (str.includes("\u0E14\u0E35\u0E25\u0E08\u0E1A")) {
+        count_deal_closed += count;
+        replied += count;
+        return;
+      }
+      if (str.includes("\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D")) {
+        if (str.includes("\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A")) {
+          count_rejected_pure += count;
+          replied += count;
+        } else if (str.includes("\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E01\u0E14\u0E02\u0E2D")) {
+          count_accepted_pending_request += count;
+          replied += count;
+        } else {
+          count_active_accepted += count;
+          replied += count;
+        }
+      } else if (str.includes("\u0E01\u0E33\u0E25\u0E31\u0E07\u0E15\u0E31\u0E14\u0E2A\u0E34\u0E19\u0E43\u0E08") || str.includes("\u0E2A\u0E19\u0E43\u0E08")) {
+        count_pending += count;
+        replied += count;
+      } else if (str.includes("\u0E40\u0E23\u0E17\u0E01\u0E32\u0E23\u0E4C\u0E14")) {
+        count_rejected_ratecard += count;
+        replied += count;
+      } else if (str.includes("\u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18")) {
+        count_rejected_pure += count;
+        replied += count;
+      } else if (str.includes("\u0E44\u0E21\u0E48\u0E2D\u0E48\u0E32\u0E19") || str.includes("\u0E2D\u0E48\u0E32\u0E19 \u0E41\u0E15\u0E48\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A") || str.includes("\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A")) {
+        count_ghosted += count;
+      }
+    });
+    let count_shipped = 0, count_clip_posted = 0;
+    Object.entries(bucket.byShipped || {}).forEach(([k, count]) => {
+      if (String(k).includes("\u0E2A\u0E48\u0E07\u0E41\u0E25\u0E49\u0E27")) count_shipped += count;
+    });
+    Object.entries(bucket.byClip || {}).forEach(([k, count]) => {
+      if (String(k).includes("\u0E25\u0E07\u0E41\u0E25\u0E49\u0E27")) count_clip_posted += count;
+    });
+    const total = bucket.total || 0;
+    const totalAccepted = count_active_accepted + count_accepted_pending_request + count_deal_closed;
+    const responseRate = total > 0 ? (replied / total * 100).toFixed(1) : 0;
+    const acceptanceRate = replied > 0 ? (totalAccepted / replied * 100).toFixed(1) : 0;
+    const shippedRate = totalAccepted > 0 ? (count_shipped / totalAccepted * 100).toFixed(1) : 0;
+    const clipRate = totalAccepted > 0 ? (count_clip_posted / totalAccepted * 100).toFixed(1) : 0;
+    return {
+      total,
+      replied,
+      accepted_pending_request: count_accepted_pending_request,
+      active_accepted: count_active_accepted,
+      deal_closed: count_deal_closed,
+      total_accepted: totalAccepted,
+      pending: count_pending,
+      ghosted: count_ghosted,
+      no_status: count_no_status,
+      shipped: count_shipped,
+      clip_posted: count_clip_posted,
+      rates: { response: responseRate, acceptance: acceptanceRate, shipped: shippedRate, clip: clipRate }
+    };
+  };
+  window.DashboardFilterSelector = ({ filterType, filterValue, teams, members, onChange }) => {
+    const [open, setOpen] = React.useState(false);
+    const triggerRef = React.useRef(null);
+    const [coords, setCoords] = React.useState({ top: 0, left: 0, width: 300, maxHeight: 400 });
+    const getLabel = () => {
+      if (filterType === "ALL") return "\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E2D\u0E07\u0E04\u0E4C\u0E01\u0E23";
+      if (filterType === "TEAM") return `\u0E17\u0E35\u0E21: ${filterValue}`;
+      return `\u0E2A\u0E21\u0E32\u0E0A\u0E34\u0E01: ${filterValue}`;
+    };
+    const toggle = (e) => {
+      e.stopPropagation();
+      if (!open && triggerRef.current) {
+        const rect = triggerRef.current.getBoundingClientRect();
+        const windowHeight = window.innerHeight;
+        const spaceBelow = windowHeight - rect.bottom - 20;
+        let maxHeight = 400;
+        let top = rect.bottom + 8;
+        if (spaceBelow < 400) maxHeight = Math.max(spaceBelow, 300);
+        const isRightSide = rect.left > window.innerWidth / 2;
+        let left = isRightSide ? "auto" : rect.left;
+        let right = isRightSide ? window.innerWidth - rect.right : "auto";
+        if (window.innerWidth < 640) {
+          left = 16;
+          right = 16;
+        }
+        setCoords({ top, left, right, maxHeight, width: window.innerWidth < 640 ? "auto" : 320 });
+      }
+      setOpen(!open);
+    };
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { ref: triggerRef }, /* @__PURE__ */ React.createElement("button", { onClick: toggle, className: "bg-white/90 backdrop-blur-md hover:bg-white text-slate-800 text-sm font-bold rounded-2xl px-5 py-3 flex items-center gap-3 transition-all shadow-lg shadow-pink-500/10 border border-white/50 active:scale-95 duration-200" }, /* @__PURE__ */ React.createElement(Icons.Filter, { size: 16, className: "text-slate-500" }), /* @__PURE__ */ React.createElement("span", { className: "min-w-[140px] text-left truncate max-w-[200px]" }, getLabel()), /* @__PURE__ */ React.createElement(Icons.ChevronDown, { size: 16, className: `text-slate-400 transition-transform duration-300 ${open ? "rotate-180" : ""}` }))), open && /* @__PURE__ */ React.createElement(window.Portal, null, /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-[9998]", onClick: () => setOpen(false) }), /* @__PURE__ */ React.createElement("div", { className: "fixed z-[9999] bg-white rounded-[24px] shadow-2xl shadow-slate-200/50 border border-slate-100 py-2 overflow-hidden animate-enter flex flex-col", style: { top: coords.top, left: coords.left, right: coords.right, maxHeight: coords.maxHeight, width: coords.width === "auto" ? "auto" : `${coords.width}px` } }, /* @__PURE__ */ React.createElement("div", { className: "overflow-y-auto custom-scrollbar flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "px-5 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0 bg-white z-10 shadow-sm border-b border-slate-50" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E21\u0E38\u0E21\u0E21\u0E2D\u0E07"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      onChange("ALL", "");
+      setOpen(false);
+    }, className: `w-full text-left px-5 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 transition-colors border-l-4 ${filterType === "ALL" ? "border-slate-900 bg-slate-50 font-bold text-slate-900" : "border-transparent text-slate-600"}` }, /* @__PURE__ */ React.createElement(Icons.Layers, { size: 16 }), " ", /* @__PURE__ */ React.createElement("span", null, "\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E2D\u0E07\u0E04\u0E4C\u0E01\u0E23")), /* @__PURE__ */ React.createElement("div", { className: "my-1 border-t border-slate-50" }), /* @__PURE__ */ React.createElement("div", { className: "px-5 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0 bg-white z-10 shadow-sm border-b border-slate-50" }, "\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E17\u0E35\u0E21"), teams.map((team) => /* @__PURE__ */ React.createElement("button", { key: team, onClick: () => {
+      onChange("TEAM", team);
+      setOpen(false);
+    }, className: `w-full text-left px-5 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 transition-colors border-l-4 ${filterType === "TEAM" && filterValue === team ? "border-[#215E61] bg-[#215E61]/10 font-bold text-[#215E61]" : "border-transparent text-slate-600"}` }, /* @__PURE__ */ React.createElement(Icons.Briefcase, { size: 16 }), " ", /* @__PURE__ */ React.createElement("span", null, team))), /* @__PURE__ */ React.createElement("div", { className: "my-1 border-t border-slate-50" }), /* @__PURE__ */ React.createElement("div", { className: "px-5 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0 bg-white z-10 shadow-sm border-b border-slate-50" }, "\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E2A\u0E21\u0E32\u0E0A\u0E34\u0E01"), members.map((m) => /* @__PURE__ */ React.createElement("button", { key: m.name, onClick: () => {
+      onChange("PERSON", m.name);
+      setOpen(false);
+    }, className: `w-full text-left px-5 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 transition-colors border-l-4 ${filterType === "PERSON" && filterValue === m.name ? "border-pink-500 bg-pink-50 font-bold text-pink-900" : "border-transparent text-slate-600"}` }, /* @__PURE__ */ React.createElement(Icons.User, { size: 16 }), " ", /* @__PURE__ */ React.createElement("span", null, m.name)))))));
+  };
+  window.Dashboard = ({ data, filterType, filterValue, onFilterChange, loading, allSheets, onDrillDown }) => {
+    const [timeFrame, setTimeFrame] = React.useState("all");
+    const [monthOpen, setMonthOpen] = React.useState(false);
+    const [customDateRange, setCustomDateRange] = React.useState({ start: "", end: "" });
+    const monthRef = React.useRef(null);
+    const { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Legend } = window.Recharts || {};
+    const {
+      kpi,
+      rejectionStats,
+      platformData,
+      availableMonths,
+      pipelineData
+    } = React.useMemo(() => {
+      const emptyStats = { all: EMPTY_BUCKET, today: EMPTY_BUCKET, week: EMPTY_BUCKET, month: EMPTY_BUCKET, history: {}, daily: {} };
+      let s = data?.overall || emptyStats;
+      if (data) {
+        if (filterType === "TEAM") s = data.byTeam?.[filterValue] || emptyStats;
+        if (filterType === "PERSON") s = data.bySheet?.[filterValue] || emptyStats;
+      }
+      const curr = getBucketForTimeframe(s, timeFrame, customDateRange);
+      const months = s.history ? Object.keys(s.history).sort().reverse() : [];
+      const k = computeKpiFromBucket(curr);
+      const pData = Object.entries(curr.byPlatform || {}).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+      let count_pending = 0, count_rejected_ratecard = 0, count_rejected_pure = 0, count_ghosted = 0, count_no_status = 0;
+      Object.entries(curr.byStatus || {}).forEach(([key, count]) => {
+        const str = String(key).trim();
+        if (!str || str === "-" || str.toLowerCase() === "unknown") {
+          count_no_status += count;
+          return;
+        }
+        if (str.includes("\u0E14\u0E35\u0E25\u0E08\u0E1A") || str.includes("\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D")) return;
+        if (str.includes("\u0E01\u0E33\u0E25\u0E31\u0E07\u0E15\u0E31\u0E14\u0E2A\u0E34\u0E19\u0E43\u0E08") || str.includes("\u0E2A\u0E19\u0E43\u0E08")) count_pending += count;
+        else if (str.includes("\u0E40\u0E23\u0E17\u0E01\u0E32\u0E23\u0E4C\u0E14")) count_rejected_ratecard += count;
+        else if (str.includes("\u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18")) count_rejected_pure += count;
+        else if (str.includes("\u0E44\u0E21\u0E48\u0E2D\u0E48\u0E32\u0E19") || str.includes("\u0E2D\u0E48\u0E32\u0E19 \u0E41\u0E15\u0E48\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A") || str.includes("\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A")) count_ghosted += count;
+      });
+      return {
+        kpi: k,
+        rejectionStats: [
+          { name: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E16\u0E32\u0E19\u0E30", value: count_no_status, fill: "#475569", filterKey: "No Status" },
+          { name: "Ghosted (\u0E44\u0E21\u0E48\u0E2D\u0E48\u0E32\u0E19/\u0E44\u0E21\u0E48\u0E15\u0E2D\u0E1A)", value: count_ghosted, fill: "#cbd5e1", filterKey: "Ghosted" },
+          { name: "\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D", value: count_rejected_pure, fill: "#f43f5e", filterKey: "\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D" },
+          { name: "\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A / \u0E21\u0E35\u0E40\u0E23\u0E17\u0E01\u0E32\u0E23\u0E4C\u0E14", value: count_rejected_ratecard, fill: "#f59e0b", filterKey: "\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A / \u0E21\u0E35\u0E40\u0E23\u0E17\u0E01\u0E32\u0E23\u0E4C\u0E14" },
+          { name: "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E15\u0E31\u0E14\u0E2A\u0E34\u0E19\u0E43\u0E08", value: count_pending, fill: "#3b82f6", filterKey: "Pending" },
+          { name: "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D (\u0E08\u0E1A)", value: k.active_accepted, fill: "#10b981", filterKey: "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D" },
+          { name: "\u0E14\u0E35\u0E25\u0E08\u0E1A (\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08)", value: k.deal_closed, fill: "#059669", filterKey: "\u0E14\u0E35\u0E25\u0E08\u0E1A" }
+        ].filter((x) => x.value > 0),
+        pipelineData: [
+          { name: "\u0E23\u0E2D\u0E02\u0E2D\u0E2A\u0E34\u0E19\u0E04\u0E49\u0E32", value: k.accepted_pending_request, fill: "#06b6d4", filterKey: "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D\u0E41\u0E15\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E01\u0E14\u0E02\u0E2D\u0E2A\u0E34\u0E19\u0E04\u0E49\u0E32" },
+          { name: "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D\u0E41\u0E25\u0E49\u0E27", value: k.active_accepted, fill: "#10b981", filterKey: "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D" },
+          { name: "\u0E14\u0E35\u0E25\u0E08\u0E1A", value: k.deal_closed, fill: "#059669", filterKey: "\u0E14\u0E35\u0E25\u0E08\u0E1A" }
+        ],
+        platformData: pData,
+        availableMonths: months
+      };
+    }, [data, filterType, filterValue, timeFrame, customDateRange]);
+    const leaderboard = React.useMemo(() => {
+      if (!data?.bySheet || !allSheets) return [];
+      return allSheets.filter((sh) => sh.id !== "ERROR").map((sh) => {
+        const stats = data.bySheet[sh.name] || { all: EMPTY_BUCKET, today: EMPTY_BUCKET, week: EMPTY_BUCKET, month: EMPTY_BUCKET, history: {}, daily: {} };
+        const bucket = getBucketForTimeframe(stats, timeFrame, customDateRange);
+        return { name: sh.name, team: sh.source, ...computeKpiFromBucket(bucket) };
+      }).filter((m) => m.total > 0).sort((a, b) => b.deal_closed + b.active_accepted - (a.deal_closed + a.active_accepted) || b.total - a.total);
+    }, [data, allSheets, timeFrame, customDateRange]);
+    const setRange = (days) => {
+      const end = /* @__PURE__ */ new Date();
+      const start = /* @__PURE__ */ new Date();
+      start.setDate(end.getDate() - days);
+      const fmt = (d) => d.toISOString().split("T")[0];
+      setCustomDateRange({ start: fmt(start), end: fmt(end) });
+    };
+    const handleCustomClick = () => {
+      setTimeFrame("custom");
+      if (!customDateRange.start) {
+        setRange(30);
+      }
+    };
+    if (loading) return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center h-64 text-slate-400 gap-3" }, /* @__PURE__ */ React.createElement(Icons.Loader2, { className: "animate-spin w-8 h-8" }), /* @__PURE__ */ React.createElement("p", null, "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E42\u0E2B\u0E25\u0E14\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25..."));
+    const timeFrameLabels = { today: "\u0E27\u0E31\u0E19\u0E19\u0E35\u0E49", week: "\u0E2A\u0E31\u0E1B\u0E14\u0E32\u0E2B\u0E4C\u0E19\u0E35\u0E49", month: "\u0E40\u0E14\u0E37\u0E2D\u0E19\u0E19\u0E35\u0E49", all: "\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14", custom: "\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E40\u0E2D\u0E07" };
+    const formatMonth = (ym) => {
+      const [y, m] = ym.split("-");
+      return new Date(y, m - 1).toLocaleString("th-TH", { month: "long", year: "numeric" });
+    };
+    const isMonthSelected = timeFrame.includes("-");
+    return /* @__PURE__ */ React.createElement("div", { className: "space-y-6 pb-20 animate-enter" }, /* @__PURE__ */ React.createElement("div", { className: "relative shadow-lg shadow-pink-200/50 rounded-[32px] group hover:scale-[1.005] transition-transform duration-500" }, /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-banner-gradient rounded-[32px] overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "hidden lg:block absolute right-10 bottom-[-20px] opacity-90 pointer-events-none", style: { animation: "float 6s ease-in-out infinite" } }, /* @__PURE__ */ React.createElement("div", { className: "w-48 h-48 bg-white/20 rounded-full blur-2xl absolute top-0 right-0" }), /* @__PURE__ */ React.createElement(Icons.Briefcase, { size: 160, className: "text-white/30" }))), /* @__PURE__ */ React.createElement("div", { className: "relative z-10 p-8 text-slate-800" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row justify-between items-start md:items-end gap-6" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { className: "text-3xl md:text-4xl font-extrabold mb-2 text-slate-900 tracking-tight" }, "\u0E41\u0E14\u0E0A\u0E1A\u0E2D\u0E23\u0E4C\u0E14\u0E2A\u0E23\u0E38\u0E1B\u0E1C\u0E25"), /* @__PURE__ */ React.createElement("p", { className: "text-slate-700 font-medium text-lg opacity-80 max-w-lg" }, "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A ", /* @__PURE__ */ React.createElement("span", { className: "font-bold underline decoration-2 decoration-white/50" }, filterType === "ALL" ? "\u0E2D\u0E07\u0E04\u0E4C\u0E01\u0E23\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21" : filterValue)), /* @__PURE__ */ React.createElement("div", { className: "mt-6 flex flex-wrap gap-3 items-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white/40 backdrop-blur-md px-4 py-2 rounded-2xl text-sm font-bold text-slate-900 shadow-sm border border-white/20" }, "\u{1F4C5} ", (/* @__PURE__ */ new Date()).toLocaleDateString("th-TH")), /* @__PURE__ */ React.createElement(window.DashboardFilterSelector, { filterType, filterValue, teams: Array.from(new Set(allSheets.map((s) => s.source))), members: allSheets, onChange: onFilterChange })))))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col sm:flex-row gap-3 items-start sm:items-center" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 bg-white/50 p-1.5 rounded-2xl w-fit backdrop-blur-sm border border-slate-100/50 overflow-x-auto no-scrollbar max-w-full shadow-sm" }, ["today", "week", "month", "all"].map((tf) => /* @__PURE__ */ React.createElement("button", { key: tf, onClick: () => setTimeFrame(tf), className: `px-4 py-1.5 rounded-xl text-xs font-bold uppercase transition-all whitespace-nowrap ${timeFrame === tf ? "bg-[#215E61] text-white shadow-md" : "text-slate-400 hover:text-slate-600 hover:bg-white"}` }, timeFrameLabels[tf])), /* @__PURE__ */ React.createElement("button", { onClick: handleCustomClick, className: `px-4 py-1.5 rounded-xl text-xs font-bold uppercase transition-all whitespace-nowrap ${timeFrame === "custom" ? "bg-[#215E61] text-white shadow-md" : "text-slate-400 hover:text-slate-600 hover:bg-white"}` }, "\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E40\u0E2D\u0E07")), availableMonths.length > 0 && timeFrame !== "custom" && /* @__PURE__ */ React.createElement("div", { className: "relative", ref: monthRef }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setMonthOpen(!monthOpen),
+        className: `flex items-center gap-2 px-5 py-2.5 rounded-2xl border transition-all shadow-sm w-full sm:w-auto ${isMonthSelected ? "bg-pink-50 border-pink-300 ring-2 ring-pink-100/50" : "bg-white border-slate-200 hover:border-slate-300"}`
+      },
+      /* @__PURE__ */ React.createElement("div", { className: `p-1 rounded-lg ${isMonthSelected ? "bg-pink-100 text-pink-600" : "bg-slate-100 text-slate-400"}` }, /* @__PURE__ */ React.createElement(Icons.CalendarDays, { size: 16 })),
+      /* @__PURE__ */ React.createElement("div", { className: "flex flex-col leading-none text-left" }, /* @__PURE__ */ React.createElement("span", { className: `text-[10px] font-bold uppercase tracking-wider ${isMonthSelected ? "text-pink-400" : "text-slate-400"}` }, "\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34"), /* @__PURE__ */ React.createElement("span", { className: `text-sm font-bold whitespace-nowrap min-w-[100px] ${isMonthSelected ? "text-pink-700" : "text-slate-600"}` }, isMonthSelected ? formatMonth(timeFrame) : "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19...")),
+      /* @__PURE__ */ React.createElement(Icons.ChevronDown, { size: 16, className: `ml-3 transition-transform duration-200 ${monthOpen ? "rotate-180" : ""} ${isMonthSelected ? "text-pink-400" : "text-slate-300"}` })
+    ), monthOpen && /* @__PURE__ */ React.createElement(window.Portal, null, /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-[9998]", onClick: () => setMonthOpen(false) }), /* @__PURE__ */ React.createElement("div", { className: "fixed z-[9999] bg-white rounded-[24px] shadow-2xl shadow-slate-200/50 border border-slate-100 py-2 overflow-hidden animate-enter flex flex-col min-w-[240px]", style: { top: monthRef.current ? monthRef.current.getBoundingClientRect().bottom + 8 : 0, left: monthRef.current ? monthRef.current.getBoundingClientRect().left : 0, maxHeight: "320px" } }, /* @__PURE__ */ React.createElement("div", { className: "px-5 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-white z-10 border-b border-slate-50 mb-1" }, "\u0E40\u0E14\u0E37\u0E2D\u0E19\u0E17\u0E35\u0E48\u0E21\u0E35\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25"), /* @__PURE__ */ React.createElement("div", { className: "overflow-y-auto custom-scrollbar p-2 space-y-1" }, availableMonths.map((m) => /* @__PURE__ */ React.createElement("button", { key: m, onClick: () => {
+      setTimeFrame(m);
+      setMonthOpen(false);
+    }, className: `w-full text-left px-4 py-3 rounded-xl text-sm font-bold flex items-center justify-between transition-all group ${timeFrame === m ? "bg-pink-50 text-pink-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}` }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: `w-8 h-8 rounded-lg flex items-center justify-center ${timeFrame === m ? "bg-pink-200/50" : "bg-slate-100 group-hover:bg-white"}` }, /* @__PURE__ */ React.createElement(Icons.Calendar, { size: 14, className: timeFrame === m ? "text-pink-600" : "text-slate-400" })), formatMonth(m)), timeFrame === m && /* @__PURE__ */ React.createElement(Icons.Check, { size: 16, className: "text-pink-500" })))))))), timeFrame === "custom" && /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2 bg-white p-2 rounded-2xl shadow-sm border border-slate-100 w-fit animate-enter" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 px-2" }, /* @__PURE__ */ React.createElement(Icons.Calendar, { size: 16, className: "text-slate-400" }), /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold text-slate-500 uppercase" }, "\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32:")), /* @__PURE__ */ React.createElement("input", { type: "date", value: customDateRange.start, onChange: (e) => setCustomDateRange({ ...customDateRange, start: e.target.value }), className: "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-pink-200 outline-none hover:bg-slate-100 transition-colors cursor-pointer" }), /* @__PURE__ */ React.createElement("span", { className: "text-slate-400 font-bold" }, "-"), /* @__PURE__ */ React.createElement("input", { type: "date", value: customDateRange.end, onChange: (e) => setCustomDateRange({ ...customDateRange, end: e.target.value }), className: "bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-pink-200 outline-none hover:bg-slate-100 transition-colors cursor-pointer" }), /* @__PURE__ */ React.createElement("div", { className: "w-px h-6 bg-slate-200 mx-1" }), /* @__PURE__ */ React.createElement("button", { onClick: () => setRange(7), className: "px-3 py-2 rounded-xl bg-pink-50 text-pink-600 text-xs font-bold hover:bg-pink-100 transition-colors flex items-center gap-1" }, "7 \u0E27\u0E31\u0E19\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRange(30), className: "px-3 py-2 rounded-xl bg-slate-50 text-slate-600 text-xs font-bold hover:bg-slate-100 transition-colors flex items-center gap-1" }, "30 \u0E27\u0E31\u0E19"))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" }, /* @__PURE__ */ React.createElement("div", { onClick: () => onDrillDown("ALL"), className: "bg-white p-5 rounded-[24px] shadow-sm border border-slate-100 hover:-translate-y-1 hover:shadow-lg transition-all cursor-pointer group active:scale-95" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "p-3 bg-[#215E61]/10 rounded-2xl text-[#215E61] group-hover:bg-[#215E61]/18 transition-colors" }, /* @__PURE__ */ React.createElement(Icons.Users, { size: 24 })), /* @__PURE__ */ React.createElement("div", { className: "text-right" }, /* @__PURE__ */ React.createElement("h3", { className: "text-slate-400 font-bold text-[10px] uppercase tracking-wider" }, "\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14"), /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-extrabold text-slate-900" }, /* @__PURE__ */ React.createElement(CountUp, { end: kpi.total })))), /* @__PURE__ */ React.createElement("div", { className: "w-full bg-slate-100 h-1.5 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full bg-[#215E61] w-full" })), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-400 mt-2 font-medium text-right group-hover:text-white transition-colors" }, "\u0E04\u0E25\u0E34\u0E01\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E14\u0E39\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14")), /* @__PURE__ */ React.createElement("div", { onClick: () => onDrillDown("Replied"), className: "bg-white p-5 rounded-[24px] shadow-sm border border-slate-100 hover:-translate-y-1 hover:shadow-lg transition-all cursor-pointer group active:scale-95" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "p-3 bg-[#215E61]/10 rounded-2xl text-[#215E61] group-hover:bg-[#215E61]/18 transition-colors" }, /* @__PURE__ */ React.createElement(Icons.MoreHorizontal, { size: 24 })), /* @__PURE__ */ React.createElement("div", { className: "text-right" }, /* @__PURE__ */ React.createElement("h3", { className: "text-slate-400 font-bold text-[10px] uppercase tracking-wider" }, "\u0E15\u0E2D\u0E1A\u0E01\u0E25\u0E31\u0E1A\u0E41\u0E25\u0E49\u0E27"), /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-extrabold text-slate-900" }, /* @__PURE__ */ React.createElement(CountUp, { end: kpi.replied })))), /* @__PURE__ */ React.createElement("div", { className: "w-full bg-slate-100 h-1.5 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full bg-[#215E61] transition-all duration-1000", style: { width: `${kpi.rates.response}%` } })), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between mt-2 text-[10px] font-bold" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-400 group-hover:text-white transition-colors" }, "\u0E2D\u0E31\u0E15\u0E23\u0E32\u0E01\u0E32\u0E23\u0E15\u0E2D\u0E1A\u0E01\u0E25\u0E31\u0E1A"), /* @__PURE__ */ React.createElement("span", { className: "text-white" }, kpi.rates.response, "%"))), /* @__PURE__ */ React.createElement("div", { onClick: () => onDrillDown("\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D"), className: "bg-white p-5 rounded-[24px] shadow-sm border border-slate-100 hover:-translate-y-1 hover:shadow-lg transition-all cursor-pointer group active:scale-95" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "p-3 bg-emerald-50 rounded-2xl text-emerald-600 group-hover:bg-emerald-100 transition-colors" }, /* @__PURE__ */ React.createElement(Icons.CheckCircle2, { size: 24 })), /* @__PURE__ */ React.createElement("div", { className: "text-right" }, /* @__PURE__ */ React.createElement("h3", { className: "text-slate-400 font-bold text-[10px] uppercase tracking-wider" }, "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D (\u0E23\u0E27\u0E21)"), /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-extrabold text-slate-900" }, /* @__PURE__ */ React.createElement(CountUp, { end: kpi.total_accepted })))), /* @__PURE__ */ React.createElement("div", { className: "w-full bg-slate-100 h-1.5 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full bg-emerald-500 transition-all duration-1000", style: { width: `${kpi.rates.acceptance}%` } })), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between mt-2 text-[10px] font-bold" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-400 group-hover:text-emerald-500 transition-colors" }, "\u0E2D\u0E31\u0E15\u0E23\u0E32\u0E01\u0E32\u0E23\u0E23\u0E31\u0E1A\u0E07\u0E32\u0E19"), /* @__PURE__ */ React.createElement("span", { className: "text-emerald-600" }, kpi.rates.acceptance, "%"))), /* @__PURE__ */ React.createElement("div", { onClick: () => onDrillDown("\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D\u0E41\u0E15\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E01\u0E14\u0E02\u0E2D\u0E2A\u0E34\u0E19\u0E04\u0E49\u0E32"), className: `p-5 rounded-[24px] shadow-sm border border-cyan-200 hover:-translate-y-1 hover:shadow-xl transition-all cursor-pointer group active:scale-95 ${kpi.accepted_pending_request > 0 ? "bg-cyan-50 shadow-cyan-100" : "bg-white"}` }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "p-3 bg-white rounded-2xl text-cyan-600 group-hover:text-cyan-700 transition-colors shadow-sm" }, /* @__PURE__ */ React.createElement(Icons.Target, { size: 24 })), /* @__PURE__ */ React.createElement("div", { className: "text-right" }, /* @__PURE__ */ React.createElement("h3", { className: "text-cyan-600 font-bold text-[10px] uppercase tracking-wider" }, "\u0E23\u0E2D\u0E02\u0E2D\u0E2A\u0E34\u0E19\u0E04\u0E49\u0E32 (Action)"), /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-extrabold text-cyan-700" }, /* @__PURE__ */ React.createElement(CountUp, { end: kpi.accepted_pending_request })))), /* @__PURE__ */ React.createElement("div", { className: "w-full bg-cyan-200 h-1.5 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full bg-cyan-500 w-full animate-pulse" })), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-cyan-600 mt-2 font-bold text-right group-hover:underline transition-colors" }, "\u0E04\u0E25\u0E34\u0E01\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E14\u0E48\u0E27\u0E19!"))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white p-5 rounded-[24px] shadow-sm border border-slate-100 hover:-translate-y-1 hover:shadow-lg transition-all group" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "p-3 bg-violet-50 rounded-2xl text-violet-600 group-hover:bg-violet-100 transition-colors" }, /* @__PURE__ */ React.createElement(Icons.Package, { size: 24 })), /* @__PURE__ */ React.createElement("div", { className: "text-right" }, /* @__PURE__ */ React.createElement("h3", { className: "text-slate-400 font-bold text-[10px] uppercase tracking-wider" }, "\u0E2A\u0E48\u0E07\u0E02\u0E2D\u0E07\u0E16\u0E36\u0E07\u0E22\u0E31\u0E07"), /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-extrabold text-slate-900" }, /* @__PURE__ */ React.createElement(CountUp, { end: kpi.shipped }), " ", /* @__PURE__ */ React.createElement("span", { className: "text-sm text-slate-300 font-bold" }, "/ ", kpi.total_accepted)))), /* @__PURE__ */ React.createElement("div", { className: "w-full bg-slate-100 h-1.5 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full bg-violet-500 transition-all duration-1000", style: { width: `${kpi.rates.shipped}%` } })), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between mt-2 text-[10px] font-bold" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-400" }, "\u0E2A\u0E48\u0E07\u0E02\u0E2D\u0E07\u0E41\u0E25\u0E49\u0E27\u0E01\u0E35\u0E48 % \u0E02\u0E2D\u0E07\u0E14\u0E35\u0E25\u0E17\u0E35\u0E48\u0E23\u0E31\u0E1A"), /* @__PURE__ */ React.createElement("span", { className: "text-violet-600" }, kpi.rates.shipped, "%"))), /* @__PURE__ */ React.createElement("div", { className: "bg-white p-5 rounded-[24px] shadow-sm border border-slate-100 hover:-translate-y-1 hover:shadow-lg transition-all group" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "p-3 bg-pink-50 rounded-2xl text-pink-600 group-hover:bg-pink-100 transition-colors" }, /* @__PURE__ */ React.createElement(Icons.Video, { size: 24 })), /* @__PURE__ */ React.createElement("div", { className: "text-right" }, /* @__PURE__ */ React.createElement("h3", { className: "text-slate-400 font-bold text-[10px] uppercase tracking-wider" }, "\u0E25\u0E07\u0E04\u0E25\u0E34\u0E1B\u0E22\u0E31\u0E07"), /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-extrabold text-slate-900" }, /* @__PURE__ */ React.createElement(CountUp, { end: kpi.clip_posted }), " ", /* @__PURE__ */ React.createElement("span", { className: "text-sm text-slate-300 font-bold" }, "/ ", kpi.total_accepted)))), /* @__PURE__ */ React.createElement("div", { className: "w-full bg-slate-100 h-1.5 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full bg-pink-500 transition-all duration-1000", style: { width: `${kpi.rates.clip}%` } })), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between mt-2 text-[10px] font-bold" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-400" }, "\u0E25\u0E07\u0E04\u0E25\u0E34\u0E1B\u0E41\u0E25\u0E49\u0E27\u0E01\u0E35\u0E48 % \u0E02\u0E2D\u0E07\u0E14\u0E35\u0E25\u0E17\u0E35\u0E48\u0E23\u0E31\u0E1A"), /* @__PURE__ */ React.createElement("span", { className: "text-pink-600" }, kpi.rates.clip, "%")))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center mb-6" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { className: "text-lg font-bold text-slate-800" }, "\u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E01\u0E32\u0E23\u0E02\u0E2D\u0E2A\u0E34\u0E19\u0E04\u0E49\u0E32"), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-400 mt-1" }, "\u0E40\u0E1B\u0E23\u0E35\u0E22\u0E1A\u0E40\u0E17\u0E35\u0E22\u0E1A\u0E04\u0E19\u0E17\u0E35\u0E48\u0E23\u0E31\u0E1A\u0E07\u0E32\u0E19\u0E41\u0E25\u0E49\u0E27 VS \u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E01\u0E14\u0E02\u0E2D"))), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-h-[250px] relative" }, pipelineData.reduce((acc, curr) => acc + curr.value, 0) > 0 ? /* @__PURE__ */ React.createElement(ResponsiveContainer, { width: "100%", height: "100%" }, /* @__PURE__ */ React.createElement(PieChart, null, /* @__PURE__ */ React.createElement(Pie, { data: pipelineData, cx: "50%", cy: "50%", innerRadius: 60, outerRadius: 80, paddingAngle: 5, dataKey: "value", onClick: (data2) => onDrillDown(data2.filterKey), style: { cursor: "pointer" } }, pipelineData.map((entry, index) => /* @__PURE__ */ React.createElement(Cell, { key: `cell-${index}`, fill: entry.fill, stroke: "none" }))), /* @__PURE__ */ React.createElement(Tooltip, { contentStyle: { borderRadius: "12px", border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }, itemStyle: { fontWeight: 600 } }), /* @__PURE__ */ React.createElement(Legend, { verticalAlign: "bottom", height: 36, iconType: "circle" }))) : /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center h-full text-slate-300" }, /* @__PURE__ */ React.createElement(Icons.CheckCircle2, { size: 40, className: "mb-2 opacity-50" }), /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold" }, "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E21\u0E35\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E01\u0E32\u0E23\u0E23\u0E31\u0E1A\u0E07\u0E32\u0E19")), /* @__PURE__ */ React.createElement("div", { className: "absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none mt-[-20px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-3xl font-extrabold text-slate-800" }, /* @__PURE__ */ React.createElement(CountUp, { end: kpi.total_accepted })), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] font-bold text-slate-400 uppercase" }, "Total Accepted")))), /* @__PURE__ */ React.createElement("div", { className: "bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 flex flex-col lg:col-span-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center mb-6" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { className: "text-lg font-bold text-slate-800" }, "\u0E01\u0E32\u0E23\u0E01\u0E23\u0E30\u0E08\u0E32\u0E22\u0E2A\u0E16\u0E32\u0E19\u0E30 (\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14)"), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-400 mt-1" }, "\u0E04\u0E25\u0E34\u0E01\u0E17\u0E35\u0E48\u0E41\u0E17\u0E48\u0E07\u0E01\u0E23\u0E32\u0E1F\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E14\u0E39\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E01\u0E25\u0E38\u0E48\u0E21\u0E19\u0E31\u0E49\u0E19\u0E46"))), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-h-[300px]" }, PieChart ? /* @__PURE__ */ React.createElement(ResponsiveContainer, { width: "100%", height: "100%" }, /* @__PURE__ */ React.createElement(BarChart, { data: rejectionStats, layout: "vertical", margin: { top: 5, right: 30, left: 40, bottom: 5 }, barSize: 32, onClick: (data2) => {
+      if (data2 && data2.activePayload && data2.activePayload[0]) {
+        onDrillDown(data2.activePayload[0].payload.filterKey);
+      }
+    }, style: { cursor: "pointer" } }, /* @__PURE__ */ React.createElement(CartesianGrid, { strokeDasharray: "3 3", horizontal: false, stroke: "rgba(29,33,40,0.12)" }), /* @__PURE__ */ React.createElement(XAxis, { type: "number", hide: true }), /* @__PURE__ */ React.createElement(YAxis, { dataKey: "name", type: "category", axisLine: false, tickLine: false, tick: { fontSize: 11, fontWeight: 600, fill: "#3d434d" }, width: 140 }), /* @__PURE__ */ React.createElement(Tooltip, { cursor: { fill: "rgba(29,33,40,0.06)" }, contentStyle: { borderRadius: "16px", border: "none", boxShadow: "0 10px 15px -3px rgba(0,0,0,0.25)", background: "#1D2128", color: "#F4F2F2" }, itemStyle: { color: "#F4F2F2" }, labelStyle: { color: "#adb3bb" } }), /* @__PURE__ */ React.createElement(Bar, { dataKey: "value", radius: [0, 6, 6, 0], isAnimationActive: true }, rejectionStats.map((entry, index) => /* @__PURE__ */ React.createElement(Cell, { key: `cell-${index}`, fill: entry.fill })), /* @__PURE__ */ React.createElement(LabelList, { dataKey: "value", position: "right", style: { fill: "#3d434d", fontSize: "12px", fontWeight: "bold" } })))) : null))), /* @__PURE__ */ React.createElement("div", { className: "bg-white p-6 rounded-[32px] shadow-sm border border-slate-100" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap justify-between items-center gap-2 mb-6" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { className: "text-lg font-bold text-slate-800 flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Icons.Trophy, { size: 20, className: "text-amber-500" }), " \u0E40\u0E1B\u0E23\u0E35\u0E22\u0E1A\u0E40\u0E17\u0E35\u0E22\u0E1A\u0E1C\u0E25\u0E07\u0E32\u0E19\u0E23\u0E32\u0E22\u0E1A\u0E38\u0E04\u0E04\u0E25"), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-400 mt-1" }, "\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32: ", /* @__PURE__ */ React.createElement("span", { className: "font-bold text-slate-500" }, isMonthSelected ? formatMonth(timeFrame) : timeFrameLabels[timeFrame] || timeFrame), " \u2014 \u0E04\u0E25\u0E34\u0E01\u0E0A\u0E37\u0E48\u0E2D\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E14\u0E39\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E23\u0E32\u0E22\u0E1A\u0E38\u0E04\u0E04\u0E25"))), leaderboard.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center py-12 text-slate-300" }, /* @__PURE__ */ React.createElement(Icons.Users, { size: 40, className: "mb-2 opacity-50" }), /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold" }, "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E21\u0E35\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32\u0E19\u0E35\u0E49")) : /* @__PURE__ */ React.createElement("div", { className: "overflow-x-auto -mx-2" }, /* @__PURE__ */ React.createElement("table", { className: "w-full text-sm min-w-[720px]" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { className: "text-[10px] text-slate-400 font-bold uppercase tracking-wider border-b border-slate-100" }, /* @__PURE__ */ React.createElement("th", { className: "px-2 py-2 text-left w-10" }, "#"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-2 text-left" }, "\u0E2A\u0E21\u0E32\u0E0A\u0E34\u0E01"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-2 text-right" }, "\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-2 text-right" }, "\u0E15\u0E2D\u0E1A\u0E01\u0E25\u0E31\u0E1A %"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-2 text-right" }, "\u0E23\u0E31\u0E1A\u0E02\u0E49\u0E2D\u0E40\u0E2A\u0E19\u0E2D"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-2 text-right" }, "\u0E14\u0E35\u0E25\u0E08\u0E1A"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-2 text-right" }, "\u0E2A\u0E48\u0E07\u0E02\u0E2D\u0E07\u0E41\u0E25\u0E49\u0E27"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-2 text-right" }, "\u0E25\u0E07\u0E04\u0E25\u0E34\u0E1B\u0E41\u0E25\u0E49\u0E27"))), /* @__PURE__ */ React.createElement("tbody", null, leaderboard.map((m, i) => {
+      const isActive = filterType === "PERSON" && filterValue === m.name;
+      const medal = i === 0 ? "text-amber-500" : i === 1 ? "text-slate-400" : i === 2 ? "text-orange-700" : "text-slate-300";
+      return /* @__PURE__ */ React.createElement(
+        "tr",
+        {
+          key: m.name,
+          onClick: () => onFilterChange("PERSON", m.name),
+          className: `border-b border-slate-50 last:border-0 cursor-pointer transition-colors ${isActive ? "bg-pink-50/60" : "hover:bg-slate-50"}`
+        },
+        /* @__PURE__ */ React.createElement("td", { className: "px-2 py-3 font-extrabold" }, i < 3 ? /* @__PURE__ */ React.createElement(Icons.Trophy, { size: 16, className: medal }) : /* @__PURE__ */ React.createElement("span", { className: "text-slate-300 text-xs pl-1" }, i + 1)),
+        /* @__PURE__ */ React.createElement("td", { className: "px-2 py-3" }, /* @__PURE__ */ React.createElement("div", { className: `font-bold ${isActive ? "text-pink-700" : "text-slate-800"}` }, m.name), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-400 font-medium" }, m.team)),
+        /* @__PURE__ */ React.createElement("td", { className: "px-2 py-3 text-right font-bold text-slate-700" }, m.total),
+        /* @__PURE__ */ React.createElement("td", { className: "px-2 py-3 text-right text-[#215E61] font-bold" }, m.rates.response, "%"),
+        /* @__PURE__ */ React.createElement("td", { className: "px-2 py-3 text-right text-emerald-600 font-bold" }, m.total_accepted),
+        /* @__PURE__ */ React.createElement("td", { className: "px-2 py-3 text-right text-teal-700 font-bold" }, m.deal_closed),
+        /* @__PURE__ */ React.createElement("td", { className: "px-2 py-3 text-right text-violet-600 font-bold" }, m.shipped),
+        /* @__PURE__ */ React.createElement("td", { className: "px-2 py-3 text-right text-pink-600 font-bold" }, m.clip_posted)
+      );
+    }))))));
+  };
+})();
+
+</script>
