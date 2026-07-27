@@ -11,12 +11,23 @@ const MASTER_TAB_NAME_IN_CONFIG_FILE = "Master_config";
 // รายชื่อ Tab ที่ไม่ต้องการให้นำมาแสดง (System Tabs)
 const IGNORED_TABS = ["Config", "Dashboard", "Master", "Template", "Lists", "Dropdowns", "Sheet1", "Data","เรทการ์ด sereniz"];
 
+// แท็บที่ต้องข้ามตอน import ทั้งสเปรดชีต: ทั้ง IGNORED_TABS (ตรงเป๊ะ) + แท็บเรทการ์ดของทุกทีม
+// ("เรทการ์ด <ทีม>" เช่น "เรทการ์ด drive", "เรทการ์ด sereniz") เพราะเป็นชีตอ้างอิงราคา ไม่ใช่ไปป์ไลน์ครีเอเตอร์
+function isIgnoredTab(name) {
+  if (IGNORED_TABS.includes(name)) return true;
+  if (String(name == null ? '' : name).indexOf('เรทการ์ด') > -1) return true;
+  return false;
+}
+
 // --- CACHE HELPERS ---
 const CACHE = CacheService.getScriptCache();
 const CACHE_TIME = 21600; // 6 hours
-const DASHBOARD_CACHE_TIME = 600; // 10 minutes
+// 30 min. Longer than the 10-min precompute trigger (createPrecomputeTrigger) so the dashboard/index
+// cache is refreshed ~3x per TTL window and real users almost never hit a cold full-sheet scan. Writes
+// still clear the dashboard cache immediately, so data stays correct — this only governs idle staleness.
+const DASHBOARD_CACHE_TIME = 1800;
 // 🟢 FORCE RESET CACHE KEY (V13) - เปลี่ยน Key เพื่อบังคับโหลดข้อมูลใหม่ (เพิ่ม byShipped/byClip)
-const CACHE_KEY_ROUTING = "ROUTING_MAP_V12_RESET";
+const CACHE_KEY_ROUTING = "ROUTING_MAP_V13_RESET";
 const CACHE_KEY_DASHBOARD = "DASHBOARD_DATA_V15_RESET";
 const CACHE_KEY_DIRECTORY = "CREATOR_INDEX_V1"; // index ครีเอเตอร์ทุกชีต (ใช้เช็คซ้ำข้ามทีม)
 
@@ -139,7 +150,12 @@ function getRoutingMap() {
 
     const configData = sheet.getRange(2, 1, lastRow - 1, 3).getDisplayValues();
     let finalMap = [];
-    const usedNames = new Set(); 
+    const usedNames = new Set();
+    // กัน config ซ้ำ: ถ้า 2 row ชี้สเปรดชีต+แท็บเดียวกัน (คนเดียวกัน) ให้เก็บใบเดียว
+    // เพื่อไม่ให้ระบบเติม suffix ชื่อทีม เช่น "โอ๊ค (Drive Sereniz)" ทั้งที่ในชีตชื่อ "โอ๊ค"
+    // (คนละคนชื่อซ้ำจะ id/tab ต่างกัน จึงยังถูกแยกชื่อตามเดิม)
+    const seenTargets = new Set();
+    const targetKey = (id, tab) => `${id}::${tab}`;
 
     const registerName = (baseName, sourceName) => {
       let unique = baseName;
@@ -162,9 +178,14 @@ function getRoutingMap() {
 
       if (specificTabName !== "") {
         try {
-          SpreadsheetApp.openById(spreadsheetId); 
+          SpreadsheetApp.openById(spreadsheetId);
+          const key = targetKey(spreadsheetId, specificTabName);
+          if (seenTargets.has(key)) return; // config ซ้ำ (ชี้ชีต+แท็บเดิม) — ข้าม
+          seenTargets.add(key);
           const safeName = registerName(specificTabName, sourceName);
-          finalMap.push({ name: safeName, id: spreadsheetId, tabName: specificTabName, source: sourceName });
+          // name = unique id ใช้ค้นชีต (อาจมี suffix เมื่อชื่อชนข้ามทีม); label = ชื่อแท็บดิบไว้โชว์
+          // (UI แยกแสดงทีละทีม จึงไม่ต้องเห็น suffix — เช่น "โอ๊ค" ที่มีทั้งทีม drive และ Sereniz)
+          finalMap.push({ name: safeName, label: specificTabName, id: spreadsheetId, tabName: specificTabName, source: sourceName });
         } catch (e) {
            console.warn(`Skip ${specificTabName}: Access Denied`);
         }
@@ -174,13 +195,16 @@ function getRoutingMap() {
           const allSheets = targetSS.getSheets();
           allSheets.forEach(s => {
             const sName = s.getName();
-            if (!IGNORED_TABS.includes(sName) && !s.isSheetHidden()) {
+            if (!isIgnoredTab(sName) && !s.isSheetHidden()) {
+              const key = targetKey(spreadsheetId, sName);
+              if (seenTargets.has(key)) return; // config ซ้ำ (ชี้ชีต+แท็บเดิม) — ข้าม
+              seenTargets.add(key);
               const safeName = registerName(sName, sourceName);
-              finalMap.push({ name: safeName, id: spreadsheetId, tabName: sName, source: sourceName });
+              finalMap.push({ name: safeName, label: sName, id: spreadsheetId, tabName: sName, source: sourceName });
             }
           });
         } catch (err) {
-          finalMap.push({ name: `⚠️ Access Denied: ${sourceName}`, id: "ERROR", tabName: "ERROR", source: sourceName });
+          finalMap.push({ name: `⚠️ Access Denied: ${sourceName}`, label: `⚠️ Access Denied: ${sourceName}`, id: "ERROR", tabName: "ERROR", source: sourceName });
         }
       }
     });
@@ -595,4 +619,46 @@ function setupFulfillmentColumns() {
   Logger.log(summary);
   clearSystemCache(); // เคลียร์ cache ทั้งหมดเพื่อให้ App โหลดคอลัมน์ใหม่ทันที
   return summary;
+}
+
+// --------------------------------------------------------------------------
+// CACHE WARMING (time-driven trigger) — keep dashboard/creator-index warm so REAL
+// users almost never trigger the slow full-scan of every sheet themselves.
+//
+// getDashboardData() and getCreatorIndex() each scan every spreadsheet on a cache miss
+// (slow). This forces that recompute on a schedule instead, refreshing the cache before
+// it expires (trigger every 10 min < DASHBOARD_CACHE_TIME 30 min = always warm, with a
+// 2-run failure margin). Run by the trigger installed via createPrecomputeTrigger below.
+// --------------------------------------------------------------------------
+function precomputeCaches() {
+  // Force a fresh recompute (remove first so the getters don't just return the stale cache).
+  CACHE.remove(CACHE_KEY_DASHBOARD);
+  const dash = getDashboardData();
+  CACHE.remove(CACHE_KEY_DIRECTORY);
+  const idx = getCreatorIndex();
+
+  const msg = `precompute @ ${new Date().toISOString()}: dashboard=${dash && dash.success ? 'ok' : 'FAIL'}, indexKeys=${idx ? Object.keys(idx).length : 0}`;
+  Logger.log(msg);
+  return msg;
+}
+
+// ONE-TIME SETUP: install the time-driven trigger that runs precomputeCaches() every 10 min.
+// วิธีใช้: เปิดไฟล์นี้ใน Apps Script Editor -> เลือกฟังก์ชัน "createPrecomputeTrigger" -> กด Run (อนุญาตสิทธิ์ครั้งแรก)
+// Re-running is safe: it removes any existing precompute trigger first so duplicates never stack.
+function createPrecomputeTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'precomputeCaches')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('precomputeCaches').timeBased().everyMinutes(10).create();
+  const msg = 'ติดตั้ง trigger แล้ว: precomputeCaches ทุก 10 นาที (dashboard/index จะอุ่นตลอด)';
+  Logger.log(msg);
+  return msg;
+}
+
+// Remove the cache-warming trigger (ถ้าต้องการปิด) — เลือกฟังก์ชันนี้แล้วกด Run
+function deletePrecomputeTrigger() {
+  const removed = ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'precomputeCaches');
+  removed.forEach(t => ScriptApp.deleteTrigger(t));
+  return `ลบ trigger แล้ว: ${removed.length} ตัว`;
 }
