@@ -4,7 +4,7 @@
 // JSX is precompiled the same way build.mjs does it, so the preview also smoke-tests the transform.
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ROOT, INCLUDE_ORDER, read, extractScript, compileJSX, JSX_FILES } from './lib.mjs';
+import { ROOT, INCLUDE_ORDER, read, extractScript, compileJSX, JSX_FILES, buildTailwindCss } from './lib.mjs';
 
 async function scriptFor(name) {
   const html = await read(name);
@@ -15,6 +15,8 @@ async function scriptFor(name) {
 
 async function run() {
   const css = await read('css'); // already a <style>…</style> block
+  // Precompiled Tailwind (same as dist) so the preview matches the deployed styling and needs no CDN.
+  const twCss = await buildTailwindCss();
   const scripts = [];
   for (const name of INCLUDE_ORDER) scripts.push(await scriptFor(name));
 
@@ -24,8 +26,7 @@ async function run() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>TikTok Agency CRM — LOCAL PREVIEW (mock data)</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>tailwind.config = { theme: { extend: {} }, corePlugins: { preflight: true } }</script>
+  <style>\n${twCss}\n</style>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
   <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>

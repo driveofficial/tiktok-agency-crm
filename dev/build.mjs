@@ -3,12 +3,13 @@
 // copy from dist/ instead of the repo root, and the served page no longer downloads/runs Babel.
 import { mkdir, writeFile, readFile, copyFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ROOT, INCLUDE_ORDER, compileFileToPlain } from './lib.mjs';
+import { ROOT, INCLUDE_ORDER, compileFileToPlain, buildTailwindCss } from './lib.mjs';
 
 const DIST = join(ROOT, 'dist');
 
-// Files copied verbatim (no JSX): plain scripts / styles / server code / manifest if present.
-const VERBATIM = ['utils.html', 'css.html', 'code.gs'];
+// Files copied verbatim (no JSX): plain scripts / server code / manifest if present.
+// css.html is NOT here — it's regenerated below with precompiled Tailwind prepended.
+const VERBATIM = ['utils.html', 'code.gs'];
 
 async function buildIndex() {
   let idx = await readFile(join(ROOT, 'index.html'), 'utf8');
@@ -16,6 +17,13 @@ async function buildIndex() {
   idx = idx
     .replace(/\s*<!-- 2\. Babel for JSX -->/, '')
     .replace(/\s*<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@babel\/standalone[^>]*><\/script>/, '');
+  // Drop the Tailwind Play CDN engine — CSS is precompiled into css.html now (~407KB JS + runtime
+  // compile removed). Strip the CDN <script>, its inline tailwind.config, and the CDN preconnect.
+  idx = idx
+    .replace(/\s*<link rel="preconnect" href="https:\/\/cdn\.tailwindcss\.com"[^>]*>/, '')
+    .replace(/\s*<!-- 1\. Tailwind CSS -->/, '')
+    .replace(/\s*<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, '')
+    .replace(/\s*<script>\s*tailwind\.config[\s\S]*?<\/script>/, '');
   return idx;
 }
 
@@ -30,6 +38,11 @@ async function run() {
     if (name === 'utils') continue; // verbatim below
     await writeFile(join(DIST, `${name}.html`), await compileFileToPlain(name));
   }
+
+  // css.html = precompiled Tailwind (<style>) + the original hand-written css.html below it.
+  const twCss = await buildTailwindCss();
+  const customCss = await readFile(join(ROOT, 'css.html'), 'utf8');
+  await writeFile(join(DIST, 'css.html'), `<style>\n${twCss}\n</style>\n${customCss}`);
 
   for (const f of VERBATIM) {
     await copyFile(join(ROOT, f), join(DIST, f));

@@ -1,10 +1,32 @@
 // Shared helpers for build.mjs (dist for Apps Script) and preview.mjs (local browser).
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { transform } from 'esbuild';
 
+const execFileP = promisify(execFile);
+const require = createRequire(import.meta.url);
+
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// Precompile Tailwind: scan the source HTML (via dev/tailwind.config.cjs) and emit ONE minified
+// static stylesheet. Replaces the Play CDN engine (~407KB JS that compiles CSS in the browser on
+// every load) — same idea as precompiling JSX. Runs the local tailwindcss CLI with the current
+// node binary so it works cross-platform without relying on a shell/PATH lookup.
+export async function buildTailwindCss() {
+  const cli = require.resolve('tailwindcss/lib/cli.js');
+  const cfg = join(ROOT, 'dev', 'tailwind.config.cjs');
+  const input = join(ROOT, 'dev', 'tailwind.input.css');
+  const out = join(tmpdir(), `crm-tw-${process.pid}-${Date.now()}.css`);
+  await execFileP(process.execPath, [cli, '-c', cfg, '-i', input, '-o', out, '--minify']);
+  const css = await readFile(out, 'utf8');
+  await rm(out, { force: true });
+  return css;
+}
 
 // Files that contain a single <script type="text/babel"> block with JSX.
 export const JSX_FILES = ['Icons', 'UI_Lib', 'Modals', 'Views', 'Dashboard', 'App'];
