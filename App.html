@@ -755,9 +755,15 @@
                     setRows(newRows); // Update UI Immediately
 
                     try {
-                        const res = await window.updateRow(activeTab, rowIndex, updatedRow);
+                        const res = await window.updateRow(activeTab, rowIndex, updatedRow, oldRows[rowIndex]);
+                        if (res && res.conflict) {
+                            setRows(oldRows);
+                            showToast('warning', 'ชีตถูกแก้ไปแล้ว', res.error);
+                            await loadData(activeTab, true);
+                            return;
+                        }
                         if (!res.success) throw new Error(res.error);
-                        
+
                         // Update Cache immediately
                         localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
                         
@@ -777,9 +783,15 @@
                     setIsSubmitting(true);
                     try {
                         if (editingRowIndex !== null) {
-                            const res = await window.updateRow(activeTab, editingRowIndex, data);
+                            const res = await window.updateRow(activeTab, editingRowIndex, data, rows[editingRowIndex]);
+                            if (res && res.conflict) {
+                                showAlert({ type: 'warning', title: 'ชีตถูกแก้ไปแล้ว', description: res.error });
+                                setModalOpen(false);
+                                await loadData(activeTab, true);
+                                return;
+                            }
                             if (!res.success) throw new Error(res.error);
-                            
+
                             const newRows = [...rows]; newRows[editingRowIndex] = data;
                             setRows(newRows);
                             
@@ -872,7 +884,13 @@
                     const mySeq = mutationSeq.current;
                     setRows(newRows);
                     try {
-                        const res = await window.deleteRow(activeTab, rowIndex);
+                        const res = await window.deleteRow(activeTab, rowIndex, deletedRow);
+                        if (res && res.conflict) {
+                            setRows(oldRows);
+                            showToast('warning', 'ชีตถูกแก้ไปแล้ว', res.error);
+                            await loadData(activeTab, true);
+                            return;
+                        }
                         if (!res.success) throw new Error(res.error);
 
                         localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
@@ -936,7 +954,14 @@
                     setRows(newRows);
 
                     try {
-                        const res = await window.bulkUpdateCell(activeTab, idxArr, statusIdx, newStatus);
+                        const res = await window.bulkUpdateCell(activeTab, idxArr, statusIdx, newStatus, idxArr.map(i => oldRows[i]));
+                        if (res && res.conflict) {
+                            setRows(oldRows);
+                            showAlert({ type: 'warning', title: 'ชีตถูกแก้ไปแล้ว', description: res.error });
+                            setSelectMode(false); setSelectedRows(new Set());
+                            await loadData(activeTab, true);
+                            return;
+                        }
                         if (!res.success) throw new Error(res.error);
                         localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
                         showToast('success', 'อัปเดตแล้ว', `อัปเดตสถานะ ${idxArr.length} รายการแล้ว`);
@@ -969,7 +994,14 @@
                     setRows(newRows);
 
                     try {
-                        const res = await window.bulkDeleteRows(activeTab, idxArr);
+                        const res = await window.bulkDeleteRows(activeTab, idxArr, idxArr.map(i => oldRows[i]));
+                        if (res && res.conflict) {
+                            setRows(oldRows);
+                            showAlert({ type: 'warning', title: 'ชีตถูกแก้ไปแล้ว', description: res.error });
+                            setSelectMode(false); setSelectedRows(new Set());
+                            await loadData(activeTab, true);
+                            return;
+                        }
                         if (!res.success) throw new Error(res.error);
                         showToast('success', 'ลบแล้ว', `ลบ ${idxArr.length} รายการแล้ว`);
                         setSelectMode(false); setSelectedRows(new Set());

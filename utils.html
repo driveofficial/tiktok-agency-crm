@@ -447,13 +447,13 @@ window.addRow = async function(sheetName, row) {
     }
 };
 
-window.updateRow = async function(sheetName, rowIndex, row) {
+window.updateRow = async function(sheetName, rowIndex, row, expectedRow) {
     if (window.isGAS) {
         return new Promise(function(resolve) {
             google.script.run
                 .withSuccessHandler(function(res) { resolve(res); })
                 .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
-                .updateData(sheetName, rowIndex, row);
+                .updateData(sheetName, rowIndex, row, expectedRow);
         });
     } else {
         await new Promise(function(r) { setTimeout(r, 300); });
@@ -461,13 +461,13 @@ window.updateRow = async function(sheetName, rowIndex, row) {
     }
 };
 
-window.deleteRow = async function(sheetName, rowIndex) {
+window.deleteRow = async function(sheetName, rowIndex, expectedRow) {
     if (window.isGAS) {
         return new Promise(function(resolve) {
             google.script.run
                 .withSuccessHandler(function(res) { resolve(res); })
                 .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
-                .deleteData(sheetName, rowIndex);
+                .deleteData(sheetName, rowIndex, expectedRow);
         });
     } else {
         await new Promise(function(r) { setTimeout(r, 400); });
@@ -491,13 +491,13 @@ window.insertRow = async function(sheetName, rowIndex, row) {
 };
 
 // --- BULK ACTIONS ---
-window.bulkUpdateCell = async function(sheetName, rowIndices, colIndex, value) {
+window.bulkUpdateCell = async function(sheetName, rowIndices, colIndex, value, expectedRows) {
     if (window.isGAS) {
         return new Promise(function(resolve) {
             google.script.run
                 .withSuccessHandler(function(res) { resolve(res); })
                 .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
-                .bulkUpdateCell(sheetName, rowIndices, colIndex, value);
+                .bulkUpdateCell(sheetName, rowIndices, colIndex, value, expectedRows);
         });
     } else {
         await new Promise(function(r) { setTimeout(r, 400); });
@@ -505,13 +505,13 @@ window.bulkUpdateCell = async function(sheetName, rowIndices, colIndex, value) {
     }
 };
 
-window.bulkDeleteRows = async function(sheetName, rowIndices) {
+window.bulkDeleteRows = async function(sheetName, rowIndices, expectedRows) {
     if (window.isGAS) {
         return new Promise(function(resolve) {
             google.script.run
                 .withSuccessHandler(function(res) { resolve(res); })
                 .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
-                .bulkDeleteRows(sheetName, rowIndices);
+                .bulkDeleteRows(sheetName, rowIndices, expectedRows);
         });
     } else {
         await new Promise(function(r) { setTimeout(r, 400); });

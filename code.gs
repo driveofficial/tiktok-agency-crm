@@ -59,10 +59,23 @@ function clearDashboardCache() {
 }
 
 function clearSystemCache() {
+  clearTeamCorpusCache(); // ต้องอ่าน routing (ยังแคชอยู่) เพื่อรู้รายชื่อทีม — ล้างก่อนลบ routing
   CACHE.remove(CACHE_KEY_ROUTING);
   CACHE.remove(CACHE_KEY_DASHBOARD);
   CACHE.remove(CACHE_KEY_DIRECTORY);
   return { success: true };
+}
+
+// CacheService list key ไม่ได้ จึงต้องประกอบคีย์เอง: TEAM_CORPUS_V1_<ทีม> ของทุกทีมใน routing
+// (ใช้ตอน "ซิงก์ทีม" เพื่อบังคับให้ global search ดึงข้อมูลสดรอบถัดไป แทนที่จะรอ TTL 30 นาที)
+function clearTeamCorpusCache() {
+  try {
+    const teams = Array.from(new Set(getRoutingMap().map(i => i.source)));
+    const keys = teams.map(t => CACHE_KEY_TEAM_CORPUS + t);
+    if (keys.length) CACHE.removeAll(keys);
+  } catch (e) {
+    console.warn('clearTeamCorpusCache: ' + e.message);
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -505,8 +518,29 @@ function getStartOfWeek(date) {
 }
 
 // --------------------------------------------------------------------------
-// CRUD FUNCTIONS 
+// CRUD FUNCTIONS
 // --------------------------------------------------------------------------
+
+// OPTIMISTIC-CONCURRENCY GUARD (กันเขียนผิดแถว)
+// การเขียน/ลบอิง "ตำแหน่งแถว" (rowIndex) ที่หน้าเว็บโหลดมา ถ้ามีคนแก้ชีตตรงๆ หรืออีกคน
+// แทรก/ลบแถวพร้อมกัน ตำแหน่งจะเลื่อน แล้วเราจะไปทับ/ลบ "แถวผิด" เงียบๆ ป้องกันด้วยการให้
+// หน้าเว็บส่ง "สแนปช็อตแถวเดิม" (expectedRow) มาด้วย แล้วเทียบกับค่าจริงในชีตก่อนเขียน
+// ถ้าไม่ตรง = แถวถูกแก้ไปแล้ว → คืน conflict ให้หน้าเว็บรีเฟรชแทนที่จะทับข้อมูลผิด
+function rowFingerprint(arr) {
+  const a = (arr || []).map(v => String(v === null || v === undefined ? '' : v));
+  while (a.length && a[a.length - 1] === '') a.pop(); // ตัดช่องว่างท้ายทิ้ง (ทนต่อคอลัมน์ท้ายที่ว่าง)
+  return a.join('');
+}
+// true = ตรง (เขียนได้); false = ไม่ตรง/แถวหาย (conflict). expectedRow ว่าง = ข้ามการเช็ค (เข้ากันได้กับไคลเอนต์เก่า)
+function rowMatches(sheet, actualRow, expectedRow) {
+  if (expectedRow === null || expectedRow === undefined) return true;
+  const lastRow = sheet.getLastRow();
+  if (actualRow < 2 || actualRow > lastRow) return false; // แถวไม่อยู่ตรงตำแหน่งเดิมแล้ว
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const current = sheet.getRange(actualRow, 1, 1, lastCol).getDisplayValues()[0];
+  return rowFingerprint(current) === rowFingerprint(expectedRow);
+}
+const CONFLICT_MSG = "ข้อมูลแถวนี้ในชีตถูกแก้ไปแล้ว ระบบโหลดข้อมูลล่าสุดให้แล้ว โปรดลองใหม่";
 
 function getData(displayName) {
   try {
@@ -535,22 +569,7 @@ function addData(displayName, rowData) {
   } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
 }
 
-function updateData(displayName, rowIndex, rowData) {
-  const lock = LockService.getScriptLock();
-  try {
-    lock.waitLock(10000);
-    const info = getTargetInfo(displayName);
-    const ss = SpreadsheetApp.openById(info.id);
-    const sheet = ss.getSheetByName(info.tabName);
-    const actualRow = rowIndex + 2; 
-    const stringRow = rowData.map(d => String(d === null || d === undefined ? '' : d));
-    sheet.getRange(actualRow, 1, 1, stringRow.length).setValues([stringRow]);
-    clearDashboardCache();
-    return { success: true };
-  } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
-}
-
-function deleteData(displayName, rowIndex) {
+function updateData(displayName, rowIndex, rowData, expectedRow) {
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
@@ -558,6 +577,23 @@ function deleteData(displayName, rowIndex) {
     const ss = SpreadsheetApp.openById(info.id);
     const sheet = ss.getSheetByName(info.tabName);
     const actualRow = rowIndex + 2;
+    if (!rowMatches(sheet, actualRow, expectedRow)) return { success: false, conflict: true, error: CONFLICT_MSG };
+    const stringRow = rowData.map(d => String(d === null || d === undefined ? '' : d));
+    sheet.getRange(actualRow, 1, 1, stringRow.length).setValues([stringRow]);
+    clearDashboardCache();
+    return { success: true };
+  } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
+}
+
+function deleteData(displayName, rowIndex, expectedRow) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    const info = getTargetInfo(displayName);
+    const ss = SpreadsheetApp.openById(info.id);
+    const sheet = ss.getSheetByName(info.tabName);
+    const actualRow = rowIndex + 2;
+    if (!rowMatches(sheet, actualRow, expectedRow)) return { success: false, conflict: true, error: CONFLICT_MSG };
     sheet.deleteRow(actualRow);
     clearDashboardCache();
     return { success: true };
@@ -592,13 +628,19 @@ function insertRowData(displayName, rowIndex, rowData) {
 // BULK ACTIONS (multi-row select in the UI)
 // --------------------------------------------------------------------------
 
-function bulkUpdateCell(displayName, rowIndices, colIndex, value) {
+function bulkUpdateCell(displayName, rowIndices, colIndex, value, expectedRows) {
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     const info = getTargetInfo(displayName);
     const ss = SpreadsheetApp.openById(info.id);
     const sheet = ss.getSheetByName(info.tabName);
+    // เช็คทุกแถวก่อน ถ้ามีแถวไหนถูกแก้ไปแล้วให้ยกเลิกทั้งก้อน (ไม่เขียนบางส่วน) กันอัปเดตโดนแถวผิด
+    if (expectedRows) {
+      for (let k = 0; k < rowIndices.length; k++) {
+        if (!rowMatches(sheet, rowIndices[k] + 2, expectedRows[k])) return { success: false, conflict: true, error: CONFLICT_MSG };
+      }
+    }
     const stringValue = String(value === null || value === undefined ? '' : value);
     rowIndices.forEach(rowIndex => {
       sheet.getRange(rowIndex + 2, colIndex + 1).setValue(stringValue);
@@ -608,13 +650,19 @@ function bulkUpdateCell(displayName, rowIndices, colIndex, value) {
   } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
 }
 
-function bulkDeleteRows(displayName, rowIndices) {
+function bulkDeleteRows(displayName, rowIndices, expectedRows) {
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     const info = getTargetInfo(displayName);
     const ss = SpreadsheetApp.openById(info.id);
     const sheet = ss.getSheetByName(info.tabName);
+    // เช็คทุกแถวก่อนลบ ถ้ามีแถวไหนถูกแก้/เลื่อนไปแล้วให้ยกเลิกทั้งก้อน กันลบผิดแถว (ทำลายถาวร)
+    if (expectedRows) {
+      for (let k = 0; k < rowIndices.length; k++) {
+        if (!rowMatches(sheet, rowIndices[k] + 2, expectedRows[k])) return { success: false, conflict: true, error: CONFLICT_MSG };
+      }
+    }
     // Delete from the bottom up so earlier deletions don't shift the row numbers of the ones still queued
     const sortedDesc = [...rowIndices].sort((a, b) => b - a);
     sortedDesc.forEach(rowIndex => {

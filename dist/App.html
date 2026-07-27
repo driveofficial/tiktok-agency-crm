@@ -601,7 +601,13 @@ const App = () => {
     newRows[rowIndex] = updatedRow;
     setRows(newRows);
     try {
-      const res = await window.updateRow(activeTab, rowIndex, updatedRow);
+      const res = await window.updateRow(activeTab, rowIndex, updatedRow, oldRows[rowIndex]);
+      if (res && res.conflict) {
+        setRows(oldRows);
+        showToast("warning", "\u0E0A\u0E35\u0E15\u0E16\u0E39\u0E01\u0E41\u0E01\u0E49\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27", res.error);
+        await loadData(activeTab, true);
+        return;
+      }
       if (!res.success) throw new Error(res.error);
       localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
       await loadData(activeTab, true);
@@ -622,7 +628,13 @@ const App = () => {
     setIsSubmitting(true);
     try {
       if (editingRowIndex !== null) {
-        const res = await window.updateRow(activeTab, editingRowIndex, data);
+        const res = await window.updateRow(activeTab, editingRowIndex, data, rows[editingRowIndex]);
+        if (res && res.conflict) {
+          showAlert({ type: "warning", title: "\u0E0A\u0E35\u0E15\u0E16\u0E39\u0E01\u0E41\u0E01\u0E49\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27", description: res.error });
+          setModalOpen(false);
+          await loadData(activeTab, true);
+          return;
+        }
         if (!res.success) throw new Error(res.error);
         const newRows = [...rows];
         newRows[editingRowIndex] = data;
@@ -708,7 +720,13 @@ const App = () => {
     const mySeq = mutationSeq.current;
     setRows(newRows);
     try {
-      const res = await window.deleteRow(activeTab, rowIndex);
+      const res = await window.deleteRow(activeTab, rowIndex, deletedRow);
+      if (res && res.conflict) {
+        setRows(oldRows);
+        showToast("warning", "\u0E0A\u0E35\u0E15\u0E16\u0E39\u0E01\u0E41\u0E01\u0E49\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27", res.error);
+        await loadData(activeTab, true);
+        return;
+      }
       if (!res.success) throw new Error(res.error);
       localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
       refreshDashboardSilently();
@@ -770,7 +788,15 @@ const App = () => {
     });
     setRows(newRows);
     try {
-      const res = await window.bulkUpdateCell(activeTab, idxArr, statusIdx, newStatus);
+      const res = await window.bulkUpdateCell(activeTab, idxArr, statusIdx, newStatus, idxArr.map((i) => oldRows[i]));
+      if (res && res.conflict) {
+        setRows(oldRows);
+        showAlert({ type: "warning", title: "\u0E0A\u0E35\u0E15\u0E16\u0E39\u0E01\u0E41\u0E01\u0E49\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27", description: res.error });
+        setSelectMode(false);
+        setSelectedRows(/* @__PURE__ */ new Set());
+        await loadData(activeTab, true);
+        return;
+      }
       if (!res.success) throw new Error(res.error);
       localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
       showToast("success", "\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E41\u0E25\u0E49\u0E27", `\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E2A\u0E16\u0E32\u0E19\u0E30 ${idxArr.length} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E41\u0E25\u0E49\u0E27`);
@@ -801,7 +827,15 @@ const App = () => {
     const newRows = rows.filter((_, i) => !selectedRows.has(i));
     setRows(newRows);
     try {
-      const res = await window.bulkDeleteRows(activeTab, idxArr);
+      const res = await window.bulkDeleteRows(activeTab, idxArr, idxArr.map((i) => oldRows[i]));
+      if (res && res.conflict) {
+        setRows(oldRows);
+        showAlert({ type: "warning", title: "\u0E0A\u0E35\u0E15\u0E16\u0E39\u0E01\u0E41\u0E01\u0E49\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27", description: res.error });
+        setSelectMode(false);
+        setSelectedRows(/* @__PURE__ */ new Set());
+        await loadData(activeTab, true);
+        return;
+      }
       if (!res.success) throw new Error(res.error);
       showToast("success", "\u0E25\u0E1A\u0E41\u0E25\u0E49\u0E27", `\u0E25\u0E1A ${idxArr.length} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E41\u0E25\u0E49\u0E27`);
       setSelectMode(false);
