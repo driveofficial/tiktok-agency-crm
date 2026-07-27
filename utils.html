@@ -340,12 +340,15 @@ window.fetchSheetNames = async function() {
         return { 
             success: true, 
             data: [
-                { name: "อาร์ม", source: "Team A", id: "1", tabName: "อาร์ม" },
-                { name: "ก้อ", source: "Team A", id: "1", tabName: "ก้อ" },
-                { name: "คิม", source: "Team B", id: "2", tabName: "คิม" },
-                { name: "ตี๋น้อย", source: "Team B", id: "2", tabName: "ตี๋น้อย" },
-                { name: "เมย์", source: "Team C", id: "3", tabName: "เมย์" }
-            ] 
+                { name: "อาร์ม", label: "อาร์ม", source: "Team A", id: "1", tabName: "อาร์ม" },
+                { name: "ก้อ", label: "ก้อ", source: "Team A", id: "1", tabName: "ก้อ" },
+                { name: "โอ๊ค", label: "โอ๊ค", source: "Team A", id: "1", tabName: "โอ๊ค" },
+                { name: "คิม", label: "คิม", source: "Team B", id: "2", tabName: "คิม" },
+                { name: "ตี๋น้อย", label: "ตี๋น้อย", source: "Team B", id: "2", tabName: "ตี๋น้อย" },
+                // ชื่อชนข้ามทีม: name ต้อง unique (มี suffix) แต่ label โชว์ชื่อดิบ "โอ๊ค" — จำลองเคสจริง
+                { name: "โอ๊ค (Team B)", label: "โอ๊ค", source: "Team B", id: "2", tabName: "โอ๊ค" },
+                { name: "เมย์", label: "เมย์", source: "Team C", id: "3", tabName: "เมย์" }
+            ]
         };
     }
 };
