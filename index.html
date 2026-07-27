@@ -1,0 +1,73 @@
+
+<!DOCTYPE html>
+<html lang="th" class="h-full w-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TikTok Agency CRM</title>
+
+    <!-- 0. Speed up the initial burst of CDN/font downloads: open the connections early -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- 1. Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: { extend: {} },
+            corePlugins: { preflight: true }
+        }
+    </script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- 2. Babel for JSX -->
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.6/babel.min.js"></script>
+
+    <!-- 3. React & ReactDOM (UMD - Version 18) -->
+    <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+
+    <!-- 4. Libraries (UMD) -->
+    <!-- Prop-Types + Recharts (~500KB) are loaded lazily on first Dashboard open (see the
+         rechartsReady loader in App.html) so the daily list view isn't slowed by chart code. -->
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <!-- Load CSS -->
+    <?!= include('css'); ?>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react-dom": "https://esm.sh/react-dom@^19.2.3",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "sweetalert2": "https://esm.sh/sweetalert2@^11.26.17"
+  }
+}
+</script>
+</head>
+<body class="bg-[#FDF4F0] text-slate-800 overflow-hidden h-full w-full">
+    <div id="root" class="h-full w-full"></div>
+
+    <!-- MAIN SCRIPTS -->
+    <?!= include('utils'); ?>
+    
+    <!-- MODULAR COMPONENTS -->
+    <?!= include('Icons'); ?>
+    <?!= include('UI_Lib'); ?>
+    <?!= include('Modals'); ?>
+    <?!= include('Views'); ?>
+    <?!= include('Dashboard'); ?>
+    
+    <!-- OLD COMPONENT FILE (Kept for backup, currently disabled) -->
+    <!-- <?!= include('components'); ?> -->
+
+    <?!= include('App'); ?>
+</body>
+</html>

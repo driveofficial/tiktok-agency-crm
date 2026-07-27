@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [
+      "gray-on-color",
+      "side-tab"
+    ],
+    "ignoreFiles": [],
+    "ignoreValues": []
+  },
+  "hook": {
+    "enabled": false,
+    "limits": {
+      "maxFindings": 5,
+      "maxChars": 8000
+    }
+  }
+}
