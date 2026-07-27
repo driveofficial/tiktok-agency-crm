@@ -799,28 +799,38 @@
                             localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
                             showToast('success', 'บันทึกแล้ว', 'แก้ไขรายการเรียบร้อย');
                         } else {
-                            // เตือนถ้าอาจเป็นรายชื่อซ้ำ (เทียบลิงก์ TikTok ก่อน ถ้าไม่มีค่อยเทียบชื่อเล่น)
+                            // เตือนถ้าอาจเป็นรายชื่อซ้ำ — เทียบ @handle จากลิงก์ > ลิงก์ดิบ > เบอร์ > ชื่อเล่น
                             const norm = s => String(s || '').trim().toLowerCase().replace(/\/+$/, '');
+                            const digits = s => String(s || '').replace(/\D/g, '');
+                            const toHandle = s => (window.extractTiktokUsername ? window.extractTiktokUsername(s) : String(s || '')).toLowerCase();
                             const linkIdx = headers.findIndex(h => { const x = String(h); return x.includes('ลิงค์') || x.includes('ลิงก์') || x.toLowerCase().includes('tiktok'); });
                             const nameIdx = headers.findIndex(h => String(h).includes('ชื่อเล่น') && !String(h).toLowerCase().includes('tiktok'));
+                            const phoneIdx = headers.findIndex(h => { const x = String(h); return x.includes('เบอร์') || x.includes('โทร'); });
+                            const contactIdx = headers.findIndex(h => String(h).includes('ช่องทางติดต่อ'));
                             const newLinkRaw = linkIdx > -1 ? data[linkIdx] : '';
                             const newNameRaw = nameIdx > -1 ? data[nameIdx] : '';
+                            const newPhoneRaw = phoneIdx > -1 ? data[phoneIdx] : '';
+                            const newContactRaw = contactIdx > -1 ? data[contactIdx] : '';
                             const newLink = norm(newLinkRaw);
                             const newName = norm(newNameRaw);
+                            const newHandle = toHandle(newLinkRaw);
+                            const newPhone = digits(newPhoneRaw);
                             const label = (nameIdx > -1 && data[nameIdx]) ? data[nameIdx] : (data[linkIdx] || 'รายการนี้');
 
-                            // 1) ซ้ำในชีตปัจจุบัน (เช็คสดจาก rows)
-                            const localDup = (newLink || newName) && rows.some(r => {
-                                if (newLink) { const lk = linkIdx > -1 ? norm(r[linkIdx]) : ''; if (lk && lk === newLink) return true; }
-                                else if (newName) { const nm = nameIdx > -1 ? norm(r[nameIdx]) : ''; if (nm && nm === newName) return true; }
+                            // 1) ซ้ำในชีตปัจจุบัน (เช็คสดจาก rows) — @handle/ลิงก์/เบอร์ก่อน แล้วค่อยชื่อเล่น
+                            const localDup = (newHandle || newLink || newPhone || newName) && rows.some(r => {
+                                if (newHandle && linkIdx > -1) { const rh = toHandle(r[linkIdx]); if (rh && rh === newHandle) return true; }
+                                if (newLink && linkIdx > -1) { const lk = norm(r[linkIdx]); if (lk && lk === newLink) return true; }
+                                if (newPhone.length >= 6 && phoneIdx > -1) { const rp = digits(r[phoneIdx]); if (rp && rp === newPhone) return true; }
+                                if (newName && nameIdx > -1) { const nm = norm(r[nameIdx]); if (nm && nm === newName) return true; }
                                 return false;
                             });
 
                             // 2) ซ้ำข้ามชีตอื่น (จาก index ฝั่ง server) — ข้ามตอน rapid entry เพื่อไม่หน่วงการกรอกต่อเนื่อง
                             let otherSheets = [];
-                            if (!addAnother && (newLink || newName)) {
+                            if (!addAnother && (newHandle || newLink || newPhone || newContactRaw || newName)) {
                                 try {
-                                    const chk = await window.checkDuplicate(newLinkRaw, newNameRaw);
+                                    const chk = await window.checkDuplicate(newLinkRaw, newNameRaw, newPhoneRaw, newContactRaw);
                                     if (chk && chk.success && Array.isArray(chk.matches)) {
                                         otherSheets = Array.from(new Set(chk.matches.map(m => m.sheet).filter(sn => sn && sn !== activeTab)));
                                     }

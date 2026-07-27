@@ -79,12 +79,30 @@ function clearTeamCorpusCache() {
 }
 
 // --------------------------------------------------------------------------
-// CREATOR DIRECTORY (เช็คชื่อ/ลิงก์ซ้ำข้ามทุกชีต — กันทักซ้ำข้ามทีม)
+// CREATOR DIRECTORY (เช็คซ้ำข้ามทุกชีต — กันลืม/ทักซ้ำครีเอเตอร์คนเดิม)
 // --------------------------------------------------------------------------
-// สร้าง index จากทุกชีต: key ('L:'+ลิงก์ | 'N:'+ชื่อเล่น) -> [{ sheet, label }]
-// แคช ~10 นาที และ "ไม่" เคลียร์ทุกครั้งที่เขียน (ต่างจาก dashboard) เพราะการ rescan ทุกสเปรดชีต
-// กินเวลานาน ถ้าเคลียร์ทุก add จะทำให้การเพิ่มรายการถัดไปช้า — การเตือนซ้ำเป็นแค่ตัวช่วย ไม่ใช่ correctness
-// จึงยอมให้ข้อมูลคลาดได้ ~10 นาที (ชีตปัจจุบันยังเช็คสดจาก rows ฝั่งหน้าเว็บอยู่แล้ว)
+// index จากทุกชีต แยกหลาย key ต่อครีเอเตอร์หนึ่งราย -> [{ sheet, label }]:
+//   H:<@handle>  = @username ที่ดึงจากลิงก์ TikTok (แมตช์ข้ามรูปแบบลิงก์ เต็ม/ย่อ/มี query)  ← key หลัก
+//   L:<ลิงก์>    = ลิงก์ดิบ normalize (เผื่อลิงก์ที่ดึง @handle ไม่ได้)
+//   P:<เบอร์>    = เบอร์โทรเฉพาะตัวเลข
+//   C:<ช่องทาง>  = ช่องทางติดต่อ (เช่น Line id)
+//   N:<ชื่อเล่น> = ชื่อเล่น (fallback สุดท้าย ชนกันง่าย)
+// เคลียร์ทุกครั้งที่ addData/insertRowData (ดู CACHE.remove ในนั้น) เพื่อให้เตือนซ้ำสด — ยอมแลกกับ
+// การที่ add ถัดไปต้อง rescan ใหม่ (precompute trigger ก็อุ่น index ให้อยู่แล้วทุก 10 นาที)
+
+// ดึง @username จากลิงก์/handle (ฝั่ง server — mirror window.extractTiktokUsername ใน utils.html)
+function extractHandle(val) {
+  const s = String(val == null ? '' : val).trim();
+  if (!s || s === '-') return '';
+  const m = s.match(/tiktok\.com\/@([\w.\-]+)/i);
+  if (m) return '@' + m[1].toLowerCase();
+  if (/^https?:\/\//i.test(s)) return '';            // เป็นลิงก์แต่ไม่มี @username
+  if (/^@[\w.\-]+$/.test(s)) return s.toLowerCase(); // @handle อยู่แล้ว
+  if (/^[\w.\-]+$/.test(s)) return '@' + s.toLowerCase(); // handle ล้วน (อังกฤษ/ตัวเลข)
+  return '';                                          // ชื่อไทย ฯลฯ → ไม่ใช่ handle
+}
+function onlyDigits(v) { return String(v == null ? '' : v).replace(/\D/g, ''); }
+
 function getCreatorIndex() {
   const cached = getCachedData(CACHE_KEY_DIRECTORY);
   if (cached) return cached;
@@ -104,7 +122,9 @@ function getCreatorIndex() {
       const headers = data[0];
       const linkIdx = headers.findIndex(h => { const x = String(h); return x.includes('ลิงค์') || x.includes('ลิงก์') || x.toLowerCase().includes('tiktok'); });
       const nameIdx = headers.findIndex(h => String(h).includes('ชื่อเล่น') && !String(h).toLowerCase().includes('tiktok'));
-      if (linkIdx === -1 && nameIdx === -1) return;
+      const phoneIdx = headers.findIndex(h => { const x = String(h); return x.includes('เบอร์') || x.includes('โทร'); });
+      const contactIdx = headers.findIndex(h => String(h).includes('ช่องทางติดต่อ'));
+      if (linkIdx === -1 && nameIdx === -1 && phoneIdx === -1 && contactIdx === -1) return;
 
       data.slice(1).forEach(row => {
         const label = (nameIdx > -1 && row[nameIdx]) ? String(row[nameIdx]).trim() : (linkIdx > -1 ? String(row[linkIdx] || '').trim() : '');
@@ -113,7 +133,9 @@ function getCreatorIndex() {
           if (!index[key]) index[key] = [];
           index[key].push({ sheet: item.name, label: label });
         };
-        if (linkIdx > -1) { const l = norm(row[linkIdx]); if (l) add('L:' + l); }
+        if (linkIdx > -1) { const h = extractHandle(row[linkIdx]); if (h) add('H:' + h); const l = norm(row[linkIdx]); if (l) add('L:' + l); }
+        if (phoneIdx > -1) { const p = onlyDigits(row[phoneIdx]); if (p.length >= 6) add('P:' + p); }
+        if (contactIdx > -1) { const c = norm(row[contactIdx]); if (c && c !== '-') add('C:' + c); }
         if (nameIdx > -1) { const n = norm(row[nameIdx]); if (n) add('N:' + n); }
       });
     } catch (e) {
@@ -125,15 +147,23 @@ function getCreatorIndex() {
   return index;
 }
 
-function checkDuplicate(link, name) {
+// เทียบซ้ำตามลำดับความน่าเชื่อถือ: @handle > ลิงก์ดิบ > เบอร์ > ช่องทางติดต่อ > ชื่อเล่น
+// (name/contact/phone อาจส่งมาหรือไม่ก็ได้ — ไคลเอนต์เก่าที่ส่งแค่ link/name ยังใช้ได้)
+function checkDuplicate(link, name, phone, contact) {
   try {
     const norm = s => String(s == null ? '' : s).trim().toLowerCase().replace(/\/+$/, '');
     const index = getCreatorIndex();
+    const h = extractHandle(link);
     const l = norm(link);
+    const p = onlyDigits(phone);
+    const c = norm(contact);
     const n = norm(name);
     let matches = [];
-    if (l && index['L:' + l]) matches = index['L:' + l];       // เจอลิงก์ตรงก่อน
-    else if (n && index['N:' + n]) matches = index['N:' + n];  // ไม่มีลิงก์ค่อยเทียบชื่อเล่น
+    if (h && index['H:' + h]) matches = index['H:' + h];
+    else if (l && index['L:' + l]) matches = index['L:' + l];
+    else if (p.length >= 6 && index['P:' + p]) matches = index['P:' + p];
+    else if (c && c !== '-' && index['C:' + c]) matches = index['C:' + c];
+    else if (n && index['N:' + n]) matches = index['N:' + n];
     return { success: true, matches: matches };
   } catch (e) {
     return { success: false, matches: [], error: e.message };
@@ -564,7 +594,8 @@ function addData(displayName, rowData) {
     const sheet = ss.getSheetByName(info.tabName);
     const stringRow = rowData.map(d => String(d === null || d === undefined ? '' : d));
     sheet.appendRow(stringRow);
-    clearDashboardCache(); 
+    clearDashboardCache();
+    CACHE.remove(CACHE_KEY_DIRECTORY); // เพิ่มคนใหม่ → ล้าง index ให้เตือนซ้ำเห็นคนนี้ทันทีรอบหน้า
     return { success: true };
   } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
 }
@@ -620,6 +651,7 @@ function insertRowData(displayName, rowIndex, rowData) {
       sheet.getRange(actualRow, 1, 1, stringRow.length).setValues([stringRow]);
     }
     clearDashboardCache();
+    CACHE.remove(CACHE_KEY_DIRECTORY); // กู้คืนแถว = ครีเอเตอร์กลับมา → ล้าง index ให้เตือนซ้ำสด
     return { success: true };
   } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
 }

@@ -643,30 +643,50 @@ const App = () => {
         showToast("success", "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E41\u0E25\u0E49\u0E27", "\u0E41\u0E01\u0E49\u0E44\u0E02\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E40\u0E23\u0E35\u0E22\u0E1A\u0E23\u0E49\u0E2D\u0E22");
       } else {
         const norm = (s) => String(s || "").trim().toLowerCase().replace(/\/+$/, "");
+        const digits = (s) => String(s || "").replace(/\D/g, "");
+        const toHandle = (s) => (window.extractTiktokUsername ? window.extractTiktokUsername(s) : String(s || "")).toLowerCase();
         const linkIdx = headers.findIndex((h) => {
           const x = String(h);
           return x.includes("\u0E25\u0E34\u0E07\u0E04\u0E4C") || x.includes("\u0E25\u0E34\u0E07\u0E01\u0E4C") || x.toLowerCase().includes("tiktok");
         });
         const nameIdx = headers.findIndex((h) => String(h).includes("\u0E0A\u0E37\u0E48\u0E2D\u0E40\u0E25\u0E48\u0E19") && !String(h).toLowerCase().includes("tiktok"));
+        const phoneIdx = headers.findIndex((h) => {
+          const x = String(h);
+          return x.includes("\u0E40\u0E1A\u0E2D\u0E23\u0E4C") || x.includes("\u0E42\u0E17\u0E23");
+        });
+        const contactIdx = headers.findIndex((h) => String(h).includes("\u0E0A\u0E48\u0E2D\u0E07\u0E17\u0E32\u0E07\u0E15\u0E34\u0E14\u0E15\u0E48\u0E2D"));
         const newLinkRaw = linkIdx > -1 ? data[linkIdx] : "";
         const newNameRaw = nameIdx > -1 ? data[nameIdx] : "";
+        const newPhoneRaw = phoneIdx > -1 ? data[phoneIdx] : "";
+        const newContactRaw = contactIdx > -1 ? data[contactIdx] : "";
         const newLink = norm(newLinkRaw);
         const newName = norm(newNameRaw);
+        const newHandle = toHandle(newLinkRaw);
+        const newPhone = digits(newPhoneRaw);
         const label = nameIdx > -1 && data[nameIdx] ? data[nameIdx] : data[linkIdx] || "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E19\u0E35\u0E49";
-        const localDup = (newLink || newName) && rows.some((r) => {
-          if (newLink) {
-            const lk = linkIdx > -1 ? norm(r[linkIdx]) : "";
+        const localDup = (newHandle || newLink || newPhone || newName) && rows.some((r) => {
+          if (newHandle && linkIdx > -1) {
+            const rh = toHandle(r[linkIdx]);
+            if (rh && rh === newHandle) return true;
+          }
+          if (newLink && linkIdx > -1) {
+            const lk = norm(r[linkIdx]);
             if (lk && lk === newLink) return true;
-          } else if (newName) {
-            const nm = nameIdx > -1 ? norm(r[nameIdx]) : "";
+          }
+          if (newPhone.length >= 6 && phoneIdx > -1) {
+            const rp = digits(r[phoneIdx]);
+            if (rp && rp === newPhone) return true;
+          }
+          if (newName && nameIdx > -1) {
+            const nm = norm(r[nameIdx]);
             if (nm && nm === newName) return true;
           }
           return false;
         });
         let otherSheets = [];
-        if (!addAnother && (newLink || newName)) {
+        if (!addAnother && (newHandle || newLink || newPhone || newContactRaw || newName)) {
           try {
-            const chk = await window.checkDuplicate(newLinkRaw, newNameRaw);
+            const chk = await window.checkDuplicate(newLinkRaw, newNameRaw, newPhoneRaw, newContactRaw);
             if (chk && chk.success && Array.isArray(chk.matches)) {
               otherSheets = Array.from(new Set(chk.matches.map((m) => m.sheet).filter((sn) => sn && sn !== activeTab)));
             }

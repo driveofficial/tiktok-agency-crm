@@ -519,15 +519,16 @@ window.bulkDeleteRows = async function(sheetName, rowIndices, expectedRows) {
     }
 };
 
-// เช็คว่าครีเอเตอร์ (ลิงก์ TikTok / ชื่อเล่น) มีอยู่ในชีตอื่นแล้วหรือยัง — กันทักซ้ำข้ามทีม
-// คืน { success, matches: [{ sheet, label }] } โดยอิง index ที่ฝั่ง server แคชไว้ (~10 นาที)
-window.checkDuplicate = async function(link, name) {
+// เช็คว่าครีเอเตอร์คนนี้มีอยู่ในชีตอื่นแล้วหรือยัง — กันลืม/ทักซ้ำข้ามทีม
+// เทียบด้วย @handle จากลิงก์ > ลิงก์ดิบ > เบอร์ > ช่องทางติดต่อ > ชื่อเล่น
+// คืน { success, matches: [{ sheet, label }] } อิง index ฝั่ง server (ล้างทุกครั้งที่เพิ่มคน)
+window.checkDuplicate = async function(link, name, phone, contact) {
     if (window.isGAS) {
         return new Promise(function(resolve) {
             google.script.run
                 .withSuccessHandler(function(res) { resolve(res || { success: false, matches: [] }); })
                 .withFailureHandler(function(err) { resolve({ success: false, matches: [], error: err.message }); })
-                .checkDuplicate(link, name);
+                .checkDuplicate(link, name, phone, contact);
         });
     } else {
         await new Promise(function(r) { setTimeout(r, 150); });
