@@ -664,38 +664,55 @@ const App = () => {
         const newHandle = toHandle(newLinkRaw);
         const newPhone = digits(newPhoneRaw);
         const label = nameIdx > -1 && data[nameIdx] ? data[nameIdx] : data[linkIdx] || "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E19\u0E35\u0E49";
-        const localDup = (newHandle || newLink || newPhone || newName) && rows.some((r) => {
-          if (newHandle && linkIdx > -1) {
-            const rh = toHandle(r[linkIdx]);
-            if (rh && rh === newHandle) return true;
-          }
-          if (newLink && linkIdx > -1) {
-            const lk = norm(r[linkIdx]);
-            if (lk && lk === newLink) return true;
-          }
-          if (newPhone.length >= 6 && phoneIdx > -1) {
-            const rp = digits(r[phoneIdx]);
-            if (rp && rp === newPhone) return true;
-          }
-          if (newName && nameIdx > -1) {
-            const nm = norm(r[nameIdx]);
-            if (nm && nm === newName) return true;
-          }
-          return false;
-        });
-        let otherSheets = [];
+        const takIdx = headers.findIndex((h) => String(h).includes("\u0E17\u0E31\u0E01"));
+        const statusIdx = headers.findIndex((h) => String(h).includes("\u0E2A\u0E16\u0E32\u0E19\u0E30"));
+        let dupDateIdx = headers.findIndex((h) => String(h).trim() === "\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48");
+        if (dupDateIdx === -1) dupDateIdx = headers.findIndex((h) => String(h).trim().startsWith("\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48"));
+        const meInfo = allSheets.find((s) => s.name === activeTab) || {};
+        const wasContacted = (r) => takIdx > -1 && String(r[takIdx] || "").indexOf("\u0E17\u0E31\u0E01\u0E41\u0E25\u0E49\u0E27") > -1;
+        let localMatch = null;
+        if (newHandle || newLink || newPhone || newName) {
+          localMatch = rows.find((r) => {
+            if (newHandle && linkIdx > -1) {
+              const rh = toHandle(r[linkIdx]);
+              if (rh && rh === newHandle) return true;
+            }
+            if (newLink && linkIdx > -1) {
+              const lk = norm(r[linkIdx]);
+              if (lk && lk === newLink) return true;
+            }
+            if (newPhone.length >= 6 && phoneIdx > -1) {
+              const rp = digits(r[phoneIdx]);
+              if (rp && rp === newPhone) return true;
+            }
+            if (newName && nameIdx > -1) {
+              const nm = norm(r[nameIdx]);
+              if (nm && nm === newName) return true;
+            }
+            return false;
+          }) || null;
+        }
+        let otherMatches = [];
         if (!addAnother && (newHandle || newLink || newPhone || newContactRaw || newName)) {
           try {
             const chk = await window.checkDuplicate(newLinkRaw, newNameRaw, newPhoneRaw, newContactRaw);
             if (chk && chk.success && Array.isArray(chk.matches)) {
-              otherSheets = Array.from(new Set(chk.matches.map((m) => m.sheet).filter((sn) => sn && sn !== activeTab)));
+              const seen = /* @__PURE__ */ new Set();
+              chk.matches.forEach((m) => {
+                if (!m || m.sheet === activeTab || seen.has(m.sheet)) return;
+                seen.add(m.sheet);
+                otherMatches.push(m);
+              });
             }
           } catch (e) {
           }
         }
-        if (localDup || otherSheets.length) {
-          const where = otherSheets.length ? localDup ? `\u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E0A\u0E35\u0E15\u0E19\u0E35\u0E49 \u0E41\u0E25\u0E30\u0E43\u0E19\u0E0A\u0E35\u0E15: ${otherSheets.join(", ")}` : `\u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E25\u0E49\u0E27\u0E43\u0E19\u0E0A\u0E35\u0E15: ${otherSheets.join(", ")}` : "\u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E0A\u0E35\u0E15\u0E19\u0E35\u0E49\u0E41\u0E25\u0E49\u0E27";
-          const proceed = await showAlert({ type: "warning", title: "\u0E2D\u0E32\u0E08\u0E40\u0E1B\u0E47\u0E19\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E0B\u0E49\u0E33", description: `"${label}" ${where} \u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E0B\u0E49\u0E33\u0E2B\u0E23\u0E37\u0E2D\u0E44\u0E21\u0E48?`, confirmText: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E15\u0E48\u0E2D\u0E44\u0E1B", cancelText: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" });
+        const dupList = [];
+        if (localMatch) dupList.push({ owner: meInfo.label || activeTab, source: meInfo.source || activeTeam, contacted: wasContacted(localMatch), status: statusIdx > -1 ? String(localMatch[statusIdx] || "").trim() : "", date: dupDateIdx > -1 ? String(localMatch[dupDateIdx] || "").trim() : "", here: true });
+        otherMatches.forEach((m) => dupList.push({ owner: m.owner || m.label || m.sheet, source: m.source, contacted: m.contacted, status: m.status, date: m.date, here: false }));
+        if (dupList.length) {
+          const desc = /* @__PURE__ */ React.createElement("span", { className: "block text-left" }, /* @__PURE__ */ React.createElement("span", { className: "block mb-3 text-center" }, /* @__PURE__ */ React.createElement("b", { className: "text-slate-700" }, '"', label, '"'), " \u0E40\u0E04\u0E22\u0E21\u0E35\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E41\u0E25\u0E49\u0E27"), dupList.slice(0, 5).map((m, i) => /* @__PURE__ */ React.createElement("span", { key: i, className: "block mb-2 pl-2.5 border-l-2 border-slate-200" }, /* @__PURE__ */ React.createElement("span", { className: "block text-slate-700 font-semibold" }, "\u0E02\u0E2D\u0E07 ", m.owner, m.source ? ` \xB7 \u0E17\u0E35\u0E21 ${m.source}` : "", m.here ? " (\u0E0A\u0E35\u0E15\u0E19\u0E35\u0E49)" : ""), /* @__PURE__ */ React.createElement("span", { className: "block text-xs mt-0.5" }, /* @__PURE__ */ React.createElement("span", { className: m.contacted ? "text-emerald-600 font-bold" : "text-amber-600 font-bold" }, m.contacted ? "\u2713 \u0E40\u0E04\u0E22\u0E17\u0E31\u0E01\u0E41\u0E25\u0E49\u0E27" : "\u2022 \u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E17\u0E31\u0E01"), m.status ? /* @__PURE__ */ React.createElement("span", { className: "text-slate-500" }, " \xB7 ", m.status) : null, m.date ? /* @__PURE__ */ React.createElement("span", { className: "text-slate-400" }, " \xB7 ", m.date) : null))), /* @__PURE__ */ React.createElement("span", { className: "block mt-3 text-center text-slate-500" }, "\u0E22\u0E31\u0E07\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E0B\u0E49\u0E33\u0E2B\u0E23\u0E37\u0E2D\u0E44\u0E21\u0E48?"));
+          const proceed = await showAlert({ type: "warning", title: "\u0E2D\u0E32\u0E08\u0E40\u0E1B\u0E47\u0E19\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E0B\u0E49\u0E33", description: desc, confirmText: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E15\u0E48\u0E2D\u0E44\u0E1B", cancelText: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" });
           if (proceed !== "confirmed") {
             setIsSubmitting(false);
             return;

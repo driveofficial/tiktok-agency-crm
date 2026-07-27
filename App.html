@@ -817,31 +817,65 @@
                             const newPhone = digits(newPhoneRaw);
                             const label = (nameIdx > -1 && data[nameIdx]) ? data[nameIdx] : (data[linkIdx] || 'รายการนี้');
 
+                            // คอลัมน์บริบทไว้โชว์ว่า "ของใคร / เคยทักแล้วไหม" ในคำเตือน
+                            const takIdx = headers.findIndex(h => String(h).includes('ทัก'));
+                            const statusIdx = headers.findIndex(h => String(h).includes('สถานะ'));
+                            let dupDateIdx = headers.findIndex(h => String(h).trim() === 'วันที่');
+                            if (dupDateIdx === -1) dupDateIdx = headers.findIndex(h => String(h).trim().startsWith('วันที่'));
+                            const meInfo = allSheets.find(s => s.name === activeTab) || {};
+                            const wasContacted = r => takIdx > -1 && String(r[takIdx] || '').indexOf('ทักแล้ว') > -1;
+
                             // 1) ซ้ำในชีตปัจจุบัน (เช็คสดจาก rows) — @handle/ลิงก์/เบอร์ก่อน แล้วค่อยชื่อเล่น
-                            const localDup = (newHandle || newLink || newPhone || newName) && rows.some(r => {
-                                if (newHandle && linkIdx > -1) { const rh = toHandle(r[linkIdx]); if (rh && rh === newHandle) return true; }
-                                if (newLink && linkIdx > -1) { const lk = norm(r[linkIdx]); if (lk && lk === newLink) return true; }
-                                if (newPhone.length >= 6 && phoneIdx > -1) { const rp = digits(r[phoneIdx]); if (rp && rp === newPhone) return true; }
-                                if (newName && nameIdx > -1) { const nm = norm(r[nameIdx]); if (nm && nm === newName) return true; }
-                                return false;
-                            });
+                            let localMatch = null;
+                            if (newHandle || newLink || newPhone || newName) {
+                                localMatch = rows.find(r => {
+                                    if (newHandle && linkIdx > -1) { const rh = toHandle(r[linkIdx]); if (rh && rh === newHandle) return true; }
+                                    if (newLink && linkIdx > -1) { const lk = norm(r[linkIdx]); if (lk && lk === newLink) return true; }
+                                    if (newPhone.length >= 6 && phoneIdx > -1) { const rp = digits(r[phoneIdx]); if (rp && rp === newPhone) return true; }
+                                    if (newName && nameIdx > -1) { const nm = norm(r[nameIdx]); if (nm && nm === newName) return true; }
+                                    return false;
+                                }) || null;
+                            }
 
                             // 2) ซ้ำข้ามชีตอื่น (จาก index ฝั่ง server) — ข้ามตอน rapid entry เพื่อไม่หน่วงการกรอกต่อเนื่อง
-                            let otherSheets = [];
+                            let otherMatches = [];
                             if (!addAnother && (newHandle || newLink || newPhone || newContactRaw || newName)) {
                                 try {
                                     const chk = await window.checkDuplicate(newLinkRaw, newNameRaw, newPhoneRaw, newContactRaw);
                                     if (chk && chk.success && Array.isArray(chk.matches)) {
-                                        otherSheets = Array.from(new Set(chk.matches.map(m => m.sheet).filter(sn => sn && sn !== activeTab)));
+                                        const seen = new Set();
+                                        chk.matches.forEach(m => {
+                                            if (!m || m.sheet === activeTab || seen.has(m.sheet)) return;
+                                            seen.add(m.sheet);
+                                            otherMatches.push(m);
+                                        });
                                     }
                                 } catch (e) { /* เช็คซ้ำเป็นแค่ตัวช่วย — ล้มเหลวก็ปล่อยเพิ่มได้ */ }
                             }
 
-                            if (localDup || otherSheets.length) {
-                                const where = otherSheets.length
-                                    ? (localDup ? `มีอยู่ในชีตนี้ และในชีต: ${otherSheets.join(', ')}` : `มีอยู่แล้วในชีต: ${otherSheets.join(', ')}`)
-                                    : 'มีอยู่ในชีตนี้แล้ว';
-                                const proceed = await showAlert({ type: 'warning', title: 'อาจเป็นรายชื่อซ้ำ', description: `"${label}" ${where} ต้องการเพิ่มซ้ำหรือไม่?`, confirmText: 'เพิ่มต่อไป', cancelText: 'ยกเลิก' });
+                            // รวมเป็นรายการเดียว: ของใคร (ชีต/ทีม) + เคยทักแล้วไหม + สถานะ + วันที่
+                            const dupList = [];
+                            if (localMatch) dupList.push({ owner: meInfo.label || activeTab, source: meInfo.source || activeTeam, contacted: wasContacted(localMatch), status: statusIdx > -1 ? String(localMatch[statusIdx] || '').trim() : '', date: dupDateIdx > -1 ? String(localMatch[dupDateIdx] || '').trim() : '', here: true });
+                            otherMatches.forEach(m => dupList.push({ owner: m.owner || m.label || m.sheet, source: m.source, contacted: m.contacted, status: m.status, date: m.date, here: false }));
+
+                            if (dupList.length) {
+                                const desc = (
+                                    <span className="block text-left">
+                                        <span className="block mb-3 text-center"><b className="text-slate-700">"{label}"</b> เคยมีในระบบแล้ว</span>
+                                        {dupList.slice(0, 5).map((m, i) => (
+                                            <span key={i} className="block mb-2 pl-2.5 border-l-2 border-slate-200">
+                                                <span className="block text-slate-700 font-semibold">ของ {m.owner}{m.source ? ` · ทีม ${m.source}` : ''}{m.here ? ' (ชีตนี้)' : ''}</span>
+                                                <span className="block text-xs mt-0.5">
+                                                    <span className={m.contacted ? 'text-emerald-600 font-bold' : 'text-amber-600 font-bold'}>{m.contacted ? '✓ เคยทักแล้ว' : '• ยังไม่ทัก'}</span>
+                                                    {m.status ? <span className="text-slate-500"> · {m.status}</span> : null}
+                                                    {m.date ? <span className="text-slate-400"> · {m.date}</span> : null}
+                                                </span>
+                                            </span>
+                                        ))}
+                                        <span className="block mt-3 text-center text-slate-500">ยังต้องการเพิ่มซ้ำหรือไม่?</span>
+                                    </span>
+                                );
+                                const proceed = await showAlert({ type: 'warning', title: 'อาจเป็นรายชื่อซ้ำ', description: desc, confirmText: 'เพิ่มต่อไป', cancelText: 'ยกเลิก' });
                                 if (proceed !== 'confirmed') { setIsSubmitting(false); return; }
                             }
 

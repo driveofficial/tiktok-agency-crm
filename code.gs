@@ -124,14 +124,29 @@ function getCreatorIndex() {
       const nameIdx = headers.findIndex(h => String(h).includes('ชื่อเล่น') && !String(h).toLowerCase().includes('tiktok'));
       const phoneIdx = headers.findIndex(h => { const x = String(h); return x.includes('เบอร์') || x.includes('โทร'); });
       const contactIdx = headers.findIndex(h => String(h).includes('ช่องทางติดต่อ'));
+      const takIdx = headers.findIndex(h => String(h).includes('ทัก'));
+      const statusIdx = headers.findIndex(h => String(h).includes('สถานะ'));
+      let dateIdx = headers.findIndex(h => String(h).trim() === 'วันที่');
+      if (dateIdx === -1) dateIdx = headers.findIndex(h => String(h).trim().startsWith('วันที่'));
       if (linkIdx === -1 && nameIdx === -1 && phoneIdx === -1 && contactIdx === -1) return;
 
       data.slice(1).forEach(row => {
         const label = (nameIdx > -1 && row[nameIdx]) ? String(row[nameIdx]).trim() : (linkIdx > -1 ? String(row[linkIdx] || '').trim() : '');
+        // ข้อมูลบริบทไว้โชว์ในคำเตือนซ้ำ: ของใคร (ชีต/ทีม) + เคยทักแล้วไหม + สถานะ + วันที่
+        const tak = takIdx > -1 ? String(row[takIdx] || '').trim() : '';
+        const rowEntry = {
+          sheet: item.name,          // routing id (ใช้กรองว่าเป็นชีตปัจจุบันไหม)
+          label: label,              // ชื่อครีเอเตอร์
+          owner: item.label,         // ชื่อชีต/คนที่ดูแล (ของใคร)
+          source: item.source,       // ทีม
+          contacted: tak.indexOf('ทักแล้ว') > -1,
+          status: statusIdx > -1 ? String(row[statusIdx] || '').trim() : '',
+          date: dateIdx > -1 ? String(row[dateIdx] || '').trim() : '',
+        };
         const add = (key) => {
           if (!key) return;
           if (!index[key]) index[key] = [];
-          index[key].push({ sheet: item.name, label: label });
+          index[key].push(rowEntry);
         };
         if (linkIdx > -1) { const h = extractHandle(row[linkIdx]); if (h) add('H:' + h); const l = norm(row[linkIdx]); if (l) add('L:' + l); }
         if (phoneIdx > -1) { const p = onlyDigits(row[phoneIdx]); if (p.length >= 6) add('P:' + p); }
