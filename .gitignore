@@ -6,3 +6,6 @@ dev/preview.html
 .DS_Store
 .clasp.json
 .claspignore
+.env
+silent-emissary-*.json
+*service-account*.json

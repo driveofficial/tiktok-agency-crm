@@ -5,7 +5,14 @@
       "side-tab"
     ],
     "ignoreFiles": [],
-    "ignoreValues": []
+    "ignoreValues": [
+      {
+        "rule": "bounce-easing",
+        "value": "animate-bounce",
+        "createdAt": "2026-07-28T08:07:28.923Z",
+        "reason": "User confirmed animate-bounce is intentional"
+      }
+    ]
   },
   "hook": {
     "enabled": false,
