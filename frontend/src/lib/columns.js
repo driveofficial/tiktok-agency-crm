@@ -13,11 +13,15 @@ export const COLUMN_CONFIG = {
     "คอมเมนท์ให้ตอบแชท": { type: "select", options: ["-", "คอมเมนท์แล้ว", "ยังไม่เมนท์"] },
     "ตามแชทเอาคำตอบ": { type: "select", options: ["-", "ตามแล้ว", "ยังไม่ตาม"] },
     "ส่งของถึงยัง": { type: "select", options: ["-", "ยังไม่ส่ง", "ส่งแล้ว"] },
-    "ลงคลิปยัง": { type: "select", options: ["-", "ยังไม่ลง", "ลงแล้ว"] },
+    "ลงคลิปยัง": { type: "select", options: ["-", "ลงคลิปแล้ว", "ยังไม่ลง"] },
+    "คลิปผ่านไหม": { type: "select", options: ["-", "ผ่าน", "ไม่ผ่าน"] },
     "ได้รับของวันไหน": { type: "date" },
+    "วันส่งของ": { type: "date" },
     "วันที่": { type: "date" },
     "ลำดับ": { type: "text", readOnly: true },
-    "จำนวน": { type: "text" }
+    "จำนวน": { type: "text" },
+    "จำนวนที่ทัก": { type: "text" },
+    "gencode": { type: "text" }
 };
 
 export const HIDDEN_COLUMNS = [
@@ -168,7 +172,7 @@ export function getChecklistItems(headers, row) {
     pushIf(find(h => h.includes('สถานะ')), 'ปิดดีล / รับข้อเสนอ', v => v.includes('ดีลจบ') || (v.includes('รับข้อเสนอ') && !v.includes('ไม่รับ') && !v.includes('ยังไม่กดขอ')));
     pushIf(find(h => h.includes('ส่งของ')), 'ส่งของถึงยัง', v => v.includes('ส่งแล้ว'));
     pushIf(find(h => h.includes('ได้รับของ')), 'ได้รับของวันไหน', v => v.trim() !== '' && v.trim() !== '-');
-    pushIf(find(h => h.includes('ลงคลิป')), 'ลงคลิปยัง', v => v.includes('ลงแล้ว'));
+    pushIf(find(h => h.includes('ลงคลิป')), 'ลงคลิปยัง', v => v.includes('ลงคลิปแล้ว') || v.includes('ลงแล้ว'));
     return items;
 }
 
@@ -189,7 +193,7 @@ export function getPipelineStage(headers, row) {
     }
     if (status.includes('ดีลจบ')) return { index: 4, label: 'ดีลจบ', dropped: false };
     if (status.includes('รับข้อเสนอ')) {
-        if (shipped.includes('ส่งแล้ว') || clip.includes('ลงแล้ว') || (received && received !== '-')) {
+        if (shipped.includes('ส่งแล้ว') || clip.includes('ลงคลิปแล้ว') || clip.includes('ลงแล้ว') || (received && received !== '-')) {
             return { index: 3, label: 'ส่งของ/รอคลิป', dropped: false };
         }
         return { index: 2, label: 'รับข้อเสนอ', dropped: false };

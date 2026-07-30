@@ -69,7 +69,7 @@ const computeKpiFromBucket = (bucket) => {
     });
     let count_shipped = 0, count_clip_posted = 0;
     Object.entries(bucket.byShipped || {}).forEach(([k, count]) => { if (String(k).includes("ส่งแล้ว")) count_shipped += count; });
-    Object.entries(bucket.byClip || {}).forEach(([k, count]) => { if (String(k).includes("ลงแล้ว")) count_clip_posted += count; });
+    Object.entries(bucket.byClip || {}).forEach(([k, count]) => { const s = String(k); if (s.includes("ลงคลิปแล้ว") || s.includes("ลงแล้ว")) count_clip_posted += count; });
     const total = bucket.total || 0;
     const totalAccepted = count_active_accepted + count_accepted_pending_request + count_deal_closed;
     const responseRate = total > 0 ? ((replied / total) * 100).toFixed(1) : 0;

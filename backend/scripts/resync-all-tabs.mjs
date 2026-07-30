@@ -12,7 +12,14 @@ import crypto from 'node:crypto';
 const SA_KEY_PATH = process.env.SA_KEY_PATH || 'silent-emissary-485208-f8-4b1b1bcafc09.json';
 const SPREADSHEET_ID = '1uGNuLClySwpkENlbi1lPIbDeL-q06uF2N8P9neXTKbU';
 const TEAM_NAME = 'ทักอินฟูรับคอมมิชชั่น 10%';
-const TABS = ['อาร์ม', 'ซัน', 'โอ๊ค', 'ตี๋น้อย'];
+// { sheetTab: ชื่อแท็บจริงใน Google Sheet, label: ชื่อที่ผูกกับ sheets.label ใน Supabase }
+// ตี๋น้อย อ่านจากแท็บ "test" (เวอร์ชันใหม่ที่มีคอลัมน์ gencode) แต่ label ยังใช้ "ตี๋น้อย" เดิม
+const TABS = [
+  { sheetTab: 'อาร์ม', label: 'อาร์ม' },
+  { sheetTab: 'ซัน', label: 'ซัน' },
+  { sheetTab: 'โอ๊ค', label: 'โอ๊ค' },
+  { sheetTab: 'test', label: 'ตี๋น้อย' },
+];
 const WEBHOOK_URL = 'https://fxjaeqeuxdlnwyxwrozf.supabase.co/functions/v1/sheet-sync';
 
 const secret = process.env.SHEET_SYNC_SECRET;
@@ -66,19 +73,19 @@ async function fetchTabValues(token, tabName) {
 async function main() {
   const token = await getAccessToken();
 
-  for (const tab of TABS) {
-    const values = await fetchTabValues(token, tab);
+  for (const { sheetTab, label } of TABS) {
+    const values = await fetchTabValues(token, sheetTab);
     const headers = values[0] ?? [];
     const rows = values.slice(1);
-    console.log(`${tab}: read ${rows.length} rows, ${headers.length} cols from Sheet`);
+    console.log(`${sheetTab} -> ${label}: read ${rows.length} rows, ${headers.length} cols from Sheet`);
 
     const res = await fetch(WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-webhook-secret': secret },
-      body: JSON.stringify({ sheets: [{ team: TEAM_NAME, label: tab, headers, rows }] }),
+      body: JSON.stringify({ sheets: [{ team: TEAM_NAME, label, headers, rows }] }),
     });
     const body = await res.json();
-    if (!res.ok || !body.ok) throw new Error(`sheet-sync error (${tab}): ${JSON.stringify(body)}`);
+    if (!res.ok || !body.ok) throw new Error(`sheet-sync error (${label}): ${JSON.stringify(body)}`);
     console.log(`  -> resynced: ${JSON.stringify(body)}`);
   }
   console.log('done — all 4 tabs resynced from Sheet');

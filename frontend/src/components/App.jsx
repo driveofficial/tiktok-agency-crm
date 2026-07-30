@@ -46,7 +46,7 @@ const classifyTask = (headers, row) => {
     const pending_request = status.includes('รับข้อเสนอ') && status.includes('ยังไม่กดขอ');
     const waiting = contacted.includes('ทักแล้ว') && !accepted && !dropped;
     const shipPending = shippedIdx > -1 && !shipped.includes('ส่งแล้ว');
-    const clipPending = clipIdx > -1 && !clip.includes('ลงแล้ว');
+    const clipPending = clipIdx > -1 && !clip.includes('ลงคลิปแล้ว') && !clip.includes('ลงแล้ว');
     const follow_up = accepted && (shipPending || clipPending);
     let stale_waiting = false;
     if (waiting) {

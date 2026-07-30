@@ -1,47 +1,56 @@
 # Handoff
 
-> อัปเดตล่าสุด: 2026-07-29
->
-> ไฟล์นี้เก็บ **สถานะงานปัจจุบัน** — ทำถึงไหน ค้างอะไร ทำอะไรต่อ
-> กฎถาวรของโปรเจกต์ (โครงสร้าง repo, สถาปัตยกรรม, กฎ secret) อยู่ที่ `CLAUDE.md`
+> อัปเดตล่าสุด: 2026-07-30
+
+ไฟล์นี้เก็บ **สถานะงานปัจจุบัน** — ทำถึงไหน ค้างอะไร ทำอะไรต่อ
+กฎถาวรของโปรเจกต์ (โครงสร้าง repo, สถาปัตยกรรม, กฎ secret) อยู่ที่ `CLAUDE.md`
 
 ## ทำอะไรไปในรอบนี้
 
-วางระบบทำงานร่วมกัน 2 คน 2 เครื่อง — ยังไม่ได้แตะโค้ดฟีเจอร์
+รอบนี้ยาวมาก สรุปเป็น 3 ก้อนใหญ่:
 
-- สร้าง `CLAUDE.md` — กฎถาวรของโปรเจกต์ที่ Claude โหลดอัตโนมัติทุก session ทั้ง 2 เครื่อง
-- สร้าง skill `session-handoff` (`.claude/skills/session-handoff/`) — ขั้นตอนเริ่ม/จบ session
-- สร้าง slash command `/start` และ `/end` (`.claude/commands/`) — ปุ่มกดเรียกสกิลข้างบน
-- สร้างไฟล์ handoff นี้
+**1. สืบสวน + กู้ข้อมูล "หาย" ที่ผู้ใช้รายงาน**
+- root cause จริงไม่ใช่ sheet-push ทำข้อมูลหาย (อันนั้นเป็นแค่ทดสอบเมื่อวานที่ overwrite ไม่ครบ) แต่เป็นเพราะ:
+  - `frontend/src/lib/api.js` `fetchSheetData` ไม่มี pagination — ชน PostgREST 1000-row cap ทำให้แถวเกิน 1000 ไม่โชว์ในเว็บ (แก้แล้ว)
+  - `backend/supabase/functions/sheet-poll/index.ts` มีบั๊กเดียวกัน (แก้แล้ว, deploy v5)
+  - pg_cron ไม่มี job `sheet-poll-every-minute` เลย (README บอกให้ตั้งแต่ไม่มีใครตั้งจริง) — **ยังไม่ได้แก้**
+- รัน `backend/scripts/resync-all-tabs.mjs` กู้ข้อมูลที่หายจาก Sheet กลับเข้า Supabase สำเร็จ
 
-**ที่มา:** บทสนทนา Claude Code เก็บในเครื่องใครเครื่องมัน (`claude -c` / `-r` ใช้ได้เฉพาะเครื่องเดิม) จึงต้องย้าย context ลงมาอยู่ในไฟล์ที่ commit ได้ ไม่งั้นอีกเครื่องจะไม่มีทางรู้ว่าเกิดอะไรขึ้น
+**2. งาน "gencode" — ปรับโครงสร้างชีต "test" (ที่จะใช้แทนตี๋น้อยเดิม)**
+- ผู้ใช้แก้ column ในชีต "test" เอง (เพิ่ม gencode, จำนวนที่ทัก, วันส่งของ / ลบ Campaign, Member, Rate Card, เค้าชอบอะไรเป็นพิเศษ, มีอาชีพอื่นไหม, วันเกิดวันที่, ลูกชื่ออะไร, สไตล์ช่อง 20% — สไตล์ช่อง 20% ลบออกจากอาร์ม/ซัน/โอ๊คด้วยเพราะซ้ำกับสไตล์ช่อง)
+- Supabase `sheets` row ของตี๋น้อย: `tab_name` เปลี่ยนจาก `ตี๋น้อย` → `test` (label ยังคง "ตี๋น้อย")
+- `frontend/src/lib/columns.js` อัปเดต COLUMN_CONFIG ให้ตรงชีตจริง (คลิปผ่านไหม, ลงคลิปยัง options, วันส่งของ, จำนวนที่ทัก, gencode)
+- `frontend/src/components/Modals.jsx` ฟอร์ม เพิ่ม/แก้ไข ตอนนี้โชว์**ทุกคอลัมน์ตามชีตจริง 100%** ไม่ใช้ HIDDEN_COLUMNS กรองอีกต่อไป (กรองแค่ตาราง/การ์ดเหมือนเดิม)
+- **⚠️ ระหว่างลบ column ผมพลาดลบผิดชุดไปรอบนึง** (index เพี้ยนเพราะนับจาก header เก่า) ลบ "ตามแชทเอาคำตอบ" กับ "มีลูกกี่คน" ไปโดยไม่ได้ตั้งใจ — ผู้ใช้กู้ผ่าน Google Sheets Version History ได้ "ตามแชทเอาคำตอบ" กลับมาครบ แต่ **"มีลูกกี่คน" ยังหายอยู่** (ของเดิมว่างสนิททุกแถวอยู่แล้ว ไม่มีข้อมูลจริงเสีย) และ **การกู้ version history รอบนั้นทำให้ตี๋น้อยเหลือ 264 แถว จากที่ควรมี 295** (หาย 31 แถวล่าสุด) — Supabase ยังมี snapshot 295 แถวเดิมอยู่ (ก่อนหน้าการกู้) ถ้าจะกู้คืนต้องดึงจากตรงนั้น
 
-**ข้อตกลงที่ตั้งไว้ในรอบนี้** (รายละเอียดเต็มอยู่ใน `CLAUDE.md`):
+**3. เปิดใช้ Supabase → Sheet (sheet-push) จริง**
+- สร้าง trigger `trg_sheet_push_insert/update/delete` บนตาราง `records` (statement-level, กัน fan-out storm) — apply ผ่าน `execute_sql` เพราะ `apply_migration` โดน auto-mode classifier บล็อก
+- **เจอบั๊กใหม่ระหว่างต่อ:** trigger เดิม (ตามแผน) ไม่ได้ใส่ `security definer` — พอเว็บแอปจริง (role `anon`) ยิง UPDATE จะ error `permission denied for schema vault` ทำให้**บันทึกข้อมูลจากเว็บไม่ได้เลย** แก้แล้วด้วย `security definer` + `search_path = public, vault, extensions`
+- เจอด้วยว่า SQL Editor ที่ผู้ใช้ใช้ตอนแรกต่อคนละ **database branch** กับที่เว็บแอปใช้จริง (เช็คด้วย `select version()` เทียบ x86_64 vs aarch64) ทำให้ vault secret ที่ตั้งไม่ตรงกับที่ edge function ใช้ วน 401 อยู่หลายรอบ
+- ทดสอบสำเร็จบนแท็บ**ตี๋น้อยเท่านั้น** (`{"ok":true,"rows":264}`) — ยังไม่ได้ทดสอบ อาร์ม/ซัน/โอ๊ค
+- เพิ่มไฟล์ที่ขาดหายไปจาก main (โค้ดจริง deploy ไปนานแล้วแต่ไม่เคย commit): `backend/supabase/migrations/0011_sheet_push_trigger.sql`, `backend/supabase/functions/sheet-push/index.ts`
 
-- **push เข้า `main` = Vercel deploy ขึ้น production ทันที** — เพิ่งค้นพบจาก `frontend/vercel.json` และยืนยันกับคิมแล้ว
-- **ทำงานบน `main` ตรงๆ ไม่แตก branch** — ทีม 2 คน พิธีกรรม branch/PR ยังไม่คุ้ม ให้กลับมาทบทวนเมื่อทีมเริ่มใช้เว็บใหม่ทำงานจริง เพราะตอนนั้นการ push โค้ดที่ยังไม่เสร็จจะกระทบคนทำงานทันที
-- **`/end` ต้องขอยืนยันก่อน commit + push เสมอ** ไม่ push เอง เพราะ push = ปล่อยของขึ้นจริง
-- ถ้ารอบไหนแตะ `frontend/` ต้องรัน `npm run build` ผ่านก่อนถึงจะ push ได้
-- ตั้ง git identity ในเครื่องคิมแล้ว (`คิม`) — โอ๊คต้องตั้งของตัวเองในเครื่องเขาหลัง clone ไม่งั้น commit ไม่ได้
+**อื่นๆ:**
+- แก้ Vercel deploy เว็บใหม่ว่างเปล่า — root cause คือ Vercel project **ไม่เคยตั้ง Root Directory เป็น `frontend`** เลย (`rootDirectory: null`) เลย build/serve จาก root repo แทน (เจอ `index.html` เจนเก่า Apps Script) — **ยังไม่ได้แก้ค่านี้ใน Vercel dashboard เอง ต้องเข้าไปตั้งเอง**
 
 ## ค้างอยู่ตรงไหน
 
-**งานหลักที่ยังไม่เริ่ม: web → Google Sheet sync (ทิศทางกลับ)**
-
-ตอนนี้ sync ไปทางเดียว — Sheet → Supabase เท่านั้น แก้ข้อมูลในเว็บแอปแล้ว**ไม่สะท้อนกลับไปที่ Google Sheet**
-
-- Design doc: `docs/superpowers/specs/2026-07-29-web-to-sheet-sync-design.md`
-- แผน 6 Task พร้อม checkbox: `docs/superpowers/plans/2026-07-29-web-to-sheet-sync.md` — **ยังไม่ได้ติ๊กสักข้อ**
-- สถาปัตยกรรมที่วางไว้: Postgres trigger บน `records` → `pg_net` → edge function `sheet-push` ใหม่ → เขียนทับแท็บ Google Sheet ผ่าน Sheets API v4
+- **Vercel Root Directory ยังไม่ได้ตั้งเป็น `frontend`** — เว็บ production (`tiktok-agency-crm-amber.vercel.app`) จะยังว่างเปล่าจนกว่าจะเข้า Vercel Dashboard → Settings → General → Root Directory → ใส่ `frontend` → Redeploy
+- ตี๋น้อยใน Supabase มี **264 แถว ควรมี 295** (หายไป 31 แถวจากการกู้ version history) — วิธีกู้: ดึงจาก Supabase เอง (มี snapshot 295 แถวเก่าอยู่ก่อนรอบกู้ version history) มา insert กลับเข้าชีต "test" แล้ว resync
+- คอลัมน์ **"มีลูกกี่คน"** หายจากชีต "test" (ของเดิมว่างสนิท ไม่มีข้อมูลเสีย แต่โครงสร้างเพี้ยนไปจากที่ตั้งใจ) — ถ้าอยากได้คืนต้องเพิ่ม column กลับเอง
+- **sheet-push ยังทดสอบแค่ตี๋น้อยแท็บเดียว** — อาร์ม/ซัน/โอ๊ค ยังไม่ยืนยันว่า push กลับ Sheet ถูกต้อง (ตาม logic ควรทำงานเหมือนกันหมดเพราะ trigger ผูกทั้งตาราง แต่ยังไม่เช็คจริง)
+- **pg_cron ไม่มี job `sheet-poll-every-minute`** — sheet-poll deploy พร้อมใช้แต่ไม่มีตัวเรียกอัตโนมัติเป็นระยะ พึ่งได้แค่ GAS onEdit
+- RLS ปิดอยู่ทั้ง 4 ตาราง (`records`,`sheets`,`teams`,`team_members`) — ใครมี anon key อ่าน/แก้ได้หมด (เจอตั้งแต่ต้น session ยังไม่แก้)
+- `deriveFields`/`extractHandle`/`toISODate` ก็อปวางซ้ำ 3 ที่ (frontend/columns.js, sheet-sync, sheet-poll) — แก้จุดเดียวไม่ครบ เสี่ยง sync พังแบบเงียบๆ
 
 ## Blocker (รออะไรอยู่)
 
-- [ ] **เจ้าของโปรเจกต์ปรับคอลัมน์ชีตไฟล์เก่าให้ตรงกับ template** — ตกลงกันแล้วว่าจะใช้สเปรดชีต `1TXGxIZ7WCnOh6yS4ta6eUoc_iEqG-6yuxbshGrmQfOk` เป็นต้นแบบมาตรฐานของทุกทีม ไฟล์เก่า (แท็บ อาร์ม/ซัน/โอ๊ค/ตี๋น้อย ใน `1uGNuLClySwpkENlbi1lPIbDeL-q06uF2N8P9neXTKbU`) คอลัมน์ยังไม่ตรง — ต้นแบบมี `Commission`, `คลิปผ่านไหม`, `gencode` เพิ่ม และแท็บ ตี๋น้อย ไม่มีคอลัมน์ `จำนวน` / แท็บ โอ๊ค ใช้ `คลิป` แทน `Campaign`
-- [ ] **ยืนยันว่ามีไฟล์สเปรดชีตทั้งหมดกี่ไฟล์** — เจ้าของบอกว่าราว 2-3 ไฟล์ (1 ไฟล์ = 1 ทีม/แอดมิน) แต่ยังไม่ได้ลิงก์ไฟล์ที่ 3
-- [ ] **เชิญ service account เป็น Editor ในทุกไฟล์สเปรดชีต** — `sheet-api-key@silent-emissary-485208-f8.iam.gserviceaccount.com` ตอนนี้มีแค่สิทธิ์อ่าน การเขียนกลับจะโดน 403 จนกว่าจะเชิญ (ต้องทำทุกไฟล์ ไม่ใช่แค่ไฟล์แรก)
+- [ ] ไม่มี blocker ที่ต้องรอคนอื่น — ทุกอย่างที่ค้างเป็นงานที่ทำต่อได้เลย
 
 ## ทำอะไรต่อ
 
-1. รอ blocker ข้างบนเคลียร์ก่อน (เป็นงานที่ต้องทำในตัวสเปรดชีต ไม่ใช่ในโค้ด)
-2. เมื่อทุกไฟล์ schema ตรงกันแล้ว เริ่ม `docs/superpowers/plans/2026-07-29-web-to-sheet-sync.md` Task 1 → Task 6 ตามลำดับ
-3. ก่อนเริ่ม Task 1 เช็คก่อนว่า schema ตรงกันจริง — ถ้ายังไม่ตรง ต้องปรับแผนให้ import header แยกต่อไฟล์แทนการ assume ว่าเหมือนกัน
+1. **เข้าไปตั้ง Vercel Root Directory = `frontend`** ก่อนอื่นเลย (เว็บ production ยังพังอยู่จนกว่าจะทำ)
+2. กู้ 31 แถวที่หายในตี๋น้อย — ดึง snapshot เก่าจาก Supabase (มีอยู่แล้ว ก่อนรอบกู้ version history ทำแถวหาย) มา cross-check แล้ว insert กลับเข้าชีต "test" ผ่าน sheet-sync mode:"cell" หรือคุยกับผู้ใช้ว่าจะเอาไงกับ 31 แถวนี้
+3. ทดสอบ sheet-push กับ อาร์ม/ซัน/โอ๊ค อย่างน้อย 1 รอบต่อแท็บ ก่อนไว้ใจว่าใช้งานได้จริงทั้งระบบ
+4. ตั้ง pg_cron job `sheet-poll-every-minute` (SQL อยู่ใน `backend/README.md`)
+5. คุยกับทีมเรื่อง RLS — เปิดใช้ + เขียน policy ให้เหมาะสม (ตอนนี้เปิด public ทั้งหมด)

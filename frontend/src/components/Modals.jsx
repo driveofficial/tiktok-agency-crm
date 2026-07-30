@@ -90,12 +90,17 @@ export const Toast = ({ id, type, title, description, onClose, actionLabel, onAc
     );
 };
 
+// label ที่โชว์ในฟอร์มเพิ่ม/แก้ไขเท่านั้น — ไม่กระทบชื่อ header จริงในชีต/Supabase
+const FIELD_LABEL_OVERRIDES = { 'จำนวน': 'จำนวนที่ทัก' };
+
 export const EditModal = ({ isOpen, onClose, onSubmit, headers, initialData, isSubmitting, formNonce, rowCount = 0 }) => {
     const [form, setForm] = React.useState({});
     const [showMore, setShowMore] = React.useState(false);
     const firstInputRef = React.useRef(null);
 
-    const isHidden = (h) => h && HIDDEN_COLUMNS.includes(String(h).trim());
+    // ฟอร์มเพิ่ม/แก้ไข ต้องมีครบทุกคอลัมน์ตามชีตจริง 100% ไม่ซ่อนอะไร
+    // (HIDDEN_COLUMNS ใช้กรองแค่มุมมองตาราง/การ์ดเท่านั้น)
+    const isHidden = () => false;
 
     const essentialIdx = React.useMemo(() => {
         const hs = (headers || []).map(h => String(h || ''));
@@ -151,10 +156,11 @@ export const EditModal = ({ isOpen, onClose, onSubmit, headers, initialData, isS
         const c = getColumnConfig(h)?.config || {};
         const isText = c.type !== 'select';
         const enterToAdd = !initialData && isText && (c.type || 'text') !== 'date';
+        const label = FIELD_LABEL_OVERRIDES[h] || h;
         return (
             <div key={i} className="space-y-1">
                 <label className="text-xs font-bold text-slate-500 uppercase flex justify-between">
-                    {h} {c.readOnly && <span className="bg-slate-200 px-1 rounded text-[9px]">AUTO</span>}
+                    {label} {c.readOnly && <span className="bg-slate-200 px-1 rounded text-[9px]">AUTO</span>}
                 </label>
                 {c.type === 'select' ? (
                     <SmartSelect value={form[i] || ""} options={c.options} headerName={h} onChange={v => setForm({ ...form, [i]: v })} variant="form" />
