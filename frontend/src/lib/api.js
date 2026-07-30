@@ -52,14 +52,28 @@ export async function fetchSheetNames() {
 // ---------------------------------------------------------------------------
 // READ
 // ---------------------------------------------------------------------------
+// PostgREST คืนสูงสุด 1000 แถว/query — sheet ที่มีมากกว่านั้นต้องวนดึงเป็นหน้าๆ
+const PAGE_SIZE = 1000;
+async function fetchAllRecords(sheetId) {
+  const out = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase.from('records')
+      .select('id,position,data,version').eq('sheet_id', sheetId)
+      .order('position').range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
 export async function fetchSheetData(sheetId) {
   try {
-    const [{ data: sheet, error: se }, { data: recs, error: re }] = await Promise.all([
+    const [{ data: sheet, error: se }, recs] = await Promise.all([
       supabase.from('sheets').select('headers').eq('id', sheetId).single(),
-      supabase.from('records').select('id,position,data,version').eq('sheet_id', sheetId).order('position'),
+      fetchAllRecords(sheetId),
     ]);
     if (se) throw se;
-    if (re) throw re;
 
     const headers = sheet?.headers || [];
     sheetHeaders[sheetId] = headers;

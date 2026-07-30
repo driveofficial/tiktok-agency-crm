@@ -176,10 +176,18 @@ Deno.serve(async (req: Request) => {
         if (he) throw he;
       }
 
-      const { data: existing, error: re } = await supabase
-        .from("records").select("id,position,data").eq("sheet_id", sh.id);
-      if (re) throw re;
-      const byPos = new Map((existing ?? []).map((r) => [r.position as number, r]));
+      // PostgREST คืนสูงสุด 1000 แถว/query — ต้องวนดึงเป็นหน้าๆ ไม่งั้น sheet ใหญ่จะโดน insert ซ้ำ
+      const existing: { id: string; position: number; data: unknown }[] = [];
+      const PAGE_SIZE = 1000;
+      for (let from = 0; ; from += PAGE_SIZE) {
+        const { data: page, error: re } = await supabase
+          .from("records").select("id,position,data").eq("sheet_id", sh.id)
+          .order("position").range(from, from + PAGE_SIZE - 1);
+        if (re) throw re;
+        existing.push(...(page ?? []) as { id: string; position: number; data: unknown }[]);
+        if (!page || page.length < PAGE_SIZE) break;
+      }
+      const byPos = new Map(existing.map((r) => [r.position, r]));
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
