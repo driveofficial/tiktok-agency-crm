@@ -45,8 +45,13 @@
 ## ค้างอยู่ตรงไหน
 
 - RLS ปิดอยู่ทั้ง 4 ตาราง (`records`,`sheets`,`teams`,`team_members`) — ใครมี anon key อ่าน/แก้ได้หมด (เจอตั้งแต่ต้น session ยังไม่แก้)
-- `deriveFields`/`extractHandle`/`toISODate` ก็อปวางซ้ำ 3 ที่ (frontend/columns.js, sheet-sync, sheet-poll) — แก้จุดเดียวไม่ครบ เสี่ยง sync พังแบบเงียบๆ
 - `SHEET_SYNC_SECRET` ที่ตั้งวันนี้หลุดเข้าแชทระหว่างทำ (ไม่ด่วน แต่ควรหมุนใหม่เมื่อมีเวลา — ดูขั้นตอนใน `docs/superpowers/plans/2026-07-31-fix-sheet-poll-push-loop.md` หรือทำตามที่เคยทำ: gen GUID ใหม่ → `supabase secrets set` → `vault.update_secret`)
+- `frontend/src/lib/columns.js` ยังมี `deriveFields`/`extractHandle`/`toISODate` แยกชุดของตัวเอง (ไม่ได้ dedup ไปด้วยตอนแก้ข้อถัดไป — ดูเหตุผลด้านล่าง)
+
+**แก้ dedup `deriveFields`/`extractHandle`/`toISODate` แล้ว (2026-07-31) — เหลือ 2 ชุดจาก 3:**
+- รวม logic ของ `sheet-sync` + `sheet-poll` เข้า `backend/supabase/functions/_shared/deriveFields.ts` ที่เดียว ทั้งสอง edge function import จากตรงนี้แทนก็อปแยก
+- **deploy ต้องใช้ Supabase CLI** (`supabase functions deploy <name> --project-ref fxjaeqeuxdlnwyxwrozf --no-verify-jwt`) **ไม่ใช้ MCP tool `deploy_edge_function`** — ลองแล้วพัง (`Module not found .../_shared/deriveFields.ts`) เพราะ MCP tool วางไฟล์ทุกไฟล์ไว้ใต้ `source/` ชั้นเดียวกันหมด import แบบ `../_shared/...` (ออกนอก `source/`) เลยหาไฟล์ไม่เจอ — CLI อ่าน struct จริงบนดิสก์เลยไม่มีปัญหานี้ (login/link CLI ไว้แล้วจากงานข้อ 4)
+- `frontend/src/lib/columns.js` **ไม่ได้รวมด้วย** เพราะ Vercel build root = `frontend/` เท่านั้น (ตั้งใจไว้แบบนี้ตอนแก้ deploy) import ข้ามไป `backend/` ไม่ได้ถ้าไม่เปิด "Include files outside root directory" ใน Vercel (ยังไม่แนะนำให้เปิด) — ถ้าจะแก้ logic ตรงนี้ในอนาคต ต้องไปแก้ `frontend/src/lib/columns.js` มือคู่กับ `_shared/deriveFields.ts` (มีคอมเมนต์เตือนไว้ทั้งสองไฟล์แล้ว)
 
 ## Blocker (รออะไรอยู่)
 
