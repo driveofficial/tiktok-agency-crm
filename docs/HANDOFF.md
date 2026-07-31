@@ -1,6 +1,6 @@
 # Handoff
 
-> อัปเดตล่าสุด: 2026-07-30
+> อัปเดตล่าสุด: 2026-07-31
 
 ไฟล์นี้เก็บ **สถานะงานปัจจุบัน** — ทำถึงไหน ค้างอะไร ทำอะไรต่อ
 กฎถาวรของโปรเจกต์ (โครงสร้าง repo, สถาปัตยกรรม, กฎ secret) อยู่ที่ `CLAUDE.md`
@@ -31,17 +31,22 @@
 - เพิ่มไฟล์ที่ขาดหายไปจาก main (โค้ดจริง deploy ไปนานแล้วแต่ไม่เคย commit): `backend/supabase/migrations/0011_sheet_push_trigger.sql`, `backend/supabase/functions/sheet-push/index.ts`
 
 **อื่นๆ:**
-- แก้ Vercel deploy เว็บใหม่ว่างเปล่า — root cause คือ Vercel project **ไม่เคยตั้ง Root Directory เป็น `frontend`** เลย (`rootDirectory: null`) เลย build/serve จาก root repo แทน (เจอ `index.html` เจนเก่า Apps Script) — **ยังไม่ได้แก้ค่านี้ใน Vercel dashboard เอง ต้องเข้าไปตั้งเอง**
+- แก้ Vercel deploy เว็บใหม่ว่างเปล่า — root cause คือ Vercel project **ไม่เคยตั้ง Root Directory เป็น `frontend`** เลย (`rootDirectory: null`) เลย build/serve จาก root repo แทน (เจอ `index.html` เจนเก่า Apps Script) — **แก้แล้ว (2026-07-31)** ตั้ง Root Directory = `frontend` + redeploy สำเร็จ เช็คด้วยเบราว์เซอร์แล้วขึ้นเว็บใหม่จริง
+
+**4. ตั้ง pg_cron job `sheet-poll-every-minute` (2026-07-31) — เจอบั๊กใหญ่ระหว่างทำ แก้แล้ว**
+- ตั้ง `SHEET_SYNC_SECRET` ใหม่ (เดิมหาค่าไม่ได้/ไม่ตรงกัน) เก็บใน vault secret ชื่อ `sheet_sync_secret` (pattern เดียวกับ `sheet_push_secret` ของ sheet-push) — cron job อ่านจาก vault ตอนยิงจริง ไม่มี plaintext secret ฝังในตัว job
+- **เจอบั๊กร้ายแรง:** พอ auth ผ่าน sheet-poll เขียน `records` ทีละแถวผ่าน PostgREST loop (`.insert()`/`.update()` แยก request) — แต่ละแถวคือคนละ statement ทำให้ trigger `notify_sheet_push` (statement-level, ตั้งใจกัน fan-out ของ 1 statement ที่แก้หลายแถวอยู่แล้ว) ยิงแยกทุกแถวอยู่ดี → เขียนกลับ Google Sheet รัวๆ ชน **Google Sheets write quota 429** ทันที (60 ครั้ง/นาที) ในไม่กี่วินาทีแรกที่เปิด — pause pg_cron ทันทีที่เจอ (unschedule) ก่อนสืบ
+- **root cause ที่แท้จริง:** sheet-poll (Sheet→Supabase) ไม่ควรทำให้ sheet-push (Supabase→Sheet) ทำงานเลยตั้งแต่ต้น เพราะข้อมูลมาจาก Sheet เองอยู่แล้ว เขียนกลับไปมีแต่เสีย quota เปล่าๆ กับเสี่ยง format เพี้ยน
+- **แก้:** migration `0012_sheet_poll_skip_push.sql` — เพิ่ม RPC `sync_sheet_records()` ที่ sheet-poll เรียกครั้งเดียวต่อ sheet (แทน loop เดิม) ตั้ง `set_config('app.skip_sheet_push','true',true)` ตลอด transaction ของ RPC call นั้น + แก้ `notify_sheet_push()` ให้เช็ค flag นี้ก่อน ข้ามถ้าติด — แก้ `sheet-poll/index.ts` ให้เรียก RPC นี้แทน deploy v8
+- ทดสอบ 2 รอบติด ได้ `updated:0,inserted:0,deleted:0` (ไม่มีอะไรเปลี่ยนจริง ไม่ false-positive) และไม่มี sheet-push ยิงตามเลย — เปิด pg_cron กลับ (job id 3, ใส่ `timeout_milliseconds:=30000` เพราะ default 5000ms ของ pg_net สั้นไปสำหรับงานจริง) รันผ่าน 2 นาทีติด ok
+- แผนงานเต็ม: `docs/superpowers/plans/2026-07-31-fix-sheet-poll-push-loop.md`
+- ⚠️ ค่า `SHEET_SYNC_SECRET` ใหม่หลุดเข้าแชทระหว่างแก้ (ผู้ใช้พิมพ์มาเอง) — ไม่ใช่เรื่องด่วน (แค่ internal shared secret) แต่ควรหมุนใหม่อีกรอบเมื่อมีเวลา (ดู "ทำอะไรต่อ")
 
 ## ค้างอยู่ตรงไหน
 
-- **Vercel Root Directory ยังไม่ได้ตั้งเป็น `frontend`** — เว็บ production (`tiktok-agency-crm-amber.vercel.app`) จะยังว่างเปล่าจนกว่าจะเข้า Vercel Dashboard → Settings → General → Root Directory → ใส่ `frontend` → Redeploy
-- ตี๋น้อยใน Supabase มี **264 แถว ควรมี 295** (หายไป 31 แถวจากการกู้ version history) — วิธีกู้: ดึงจาก Supabase เอง (มี snapshot 295 แถวเก่าอยู่ก่อนรอบกู้ version history) มา insert กลับเข้าชีต "test" แล้ว resync
-- คอลัมน์ **"มีลูกกี่คน"** หายจากชีต "test" (ของเดิมว่างสนิท ไม่มีข้อมูลเสีย แต่โครงสร้างเพี้ยนไปจากที่ตั้งใจ) — ถ้าอยากได้คืนต้องเพิ่ม column กลับเอง
-- **sheet-push ยังทดสอบแค่ตี๋น้อยแท็บเดียว** — อาร์ม/ซัน/โอ๊ค ยังไม่ยืนยันว่า push กลับ Sheet ถูกต้อง (ตาม logic ควรทำงานเหมือนกันหมดเพราะ trigger ผูกทั้งตาราง แต่ยังไม่เช็คจริง)
-- **pg_cron ไม่มี job `sheet-poll-every-minute`** — sheet-poll deploy พร้อมใช้แต่ไม่มีตัวเรียกอัตโนมัติเป็นระยะ พึ่งได้แค่ GAS onEdit
 - RLS ปิดอยู่ทั้ง 4 ตาราง (`records`,`sheets`,`teams`,`team_members`) — ใครมี anon key อ่าน/แก้ได้หมด (เจอตั้งแต่ต้น session ยังไม่แก้)
 - `deriveFields`/`extractHandle`/`toISODate` ก็อปวางซ้ำ 3 ที่ (frontend/columns.js, sheet-sync, sheet-poll) — แก้จุดเดียวไม่ครบ เสี่ยง sync พังแบบเงียบๆ
+- `SHEET_SYNC_SECRET` ที่ตั้งวันนี้หลุดเข้าแชทระหว่างทำ (ไม่ด่วน แต่ควรหมุนใหม่เมื่อมีเวลา — ดูขั้นตอนใน `docs/superpowers/plans/2026-07-31-fix-sheet-poll-push-loop.md` หรือทำตามที่เคยทำ: gen GUID ใหม่ → `supabase secrets set` → `vault.update_secret`)
 
 ## Blocker (รออะไรอยู่)
 
@@ -49,8 +54,5 @@
 
 ## ทำอะไรต่อ
 
-1. **เข้าไปตั้ง Vercel Root Directory = `frontend`** ก่อนอื่นเลย (เว็บ production ยังพังอยู่จนกว่าจะทำ)
-2. กู้ 31 แถวที่หายในตี๋น้อย — ดึง snapshot เก่าจาก Supabase (มีอยู่แล้ว ก่อนรอบกู้ version history ทำแถวหาย) มา cross-check แล้ว insert กลับเข้าชีต "test" ผ่าน sheet-sync mode:"cell" หรือคุยกับผู้ใช้ว่าจะเอาไงกับ 31 แถวนี้
-3. ทดสอบ sheet-push กับ อาร์ม/ซัน/โอ๊ค อย่างน้อย 1 รอบต่อแท็บ ก่อนไว้ใจว่าใช้งานได้จริงทั้งระบบ
-4. ตั้ง pg_cron job `sheet-poll-every-minute` (SQL อยู่ใน `backend/README.md`)
-5. คุยกับทีมเรื่อง RLS — เปิดใช้ + เขียน policy ให้เหมาะสม (ตอนนี้เปิด public ทั้งหมด)
+1. คุยกับทีมเรื่อง RLS — เปิดใช้ + เขียน policy ให้เหมาะสม (ตอนนี้เปิด public ทั้งหมด)
+2. (ไม่ด่วน) หมุน `SHEET_SYNC_SECRET` ใหม่เพราะค่าปัจจุบันเคยหลุดเข้าแชทตอนตั้งค่า

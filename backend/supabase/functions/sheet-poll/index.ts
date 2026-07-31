@@ -171,47 +171,22 @@ Deno.serve(async (req: Request) => {
       const rows = values.slice(1);
       sheetsSynced++;
 
-      if (JSON.stringify(headers) !== JSON.stringify(sh.headers ?? [])) {
-        const { error: he } = await supabase.from("sheets").update({ headers }).eq("id", sh.id);
-        if (he) throw he;
-      }
-
-      // PostgREST คืนสูงสุด 1000 แถว/query — ต้องวนดึงเป็นหน้าๆ ไม่งั้น sheet ใหญ่จะโดน insert ซ้ำ
-      const existing: { id: string; position: number; data: unknown }[] = [];
-      const PAGE_SIZE = 1000;
-      for (let from = 0; ; from += PAGE_SIZE) {
-        const { data: page, error: re } = await supabase
-          .from("records").select("id,position,data").eq("sheet_id", sh.id)
-          .order("position").range(from, from + PAGE_SIZE - 1);
-        if (re) throw re;
-        existing.push(...(page ?? []) as { id: string; position: number; data: unknown }[]);
-        if (!page || page.length < PAGE_SIZE) break;
-      }
-      const byPos = new Map(existing.map((r) => [r.position, r]));
-
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const cur = byPos.get(i);
-        const derived = deriveFields(headers, row);
-        if (!cur) {
-          const { error: ie } = await supabase.from("records")
-            .insert({ sheet_id: sh.id, team_id: sh.team_id, position: i, data: row, ...derived });
-          if (ie) throw ie;
-          inserted++;
-        } else if (JSON.stringify(cur.data) !== JSON.stringify(row)) {
-          const { error: ue } = await supabase.from("records")
-            .update({ data: row, ...derived }).eq("id", cur.id);
-          if (ue) throw ue;
-          updated++;
-        }
-        byPos.delete(i);
-      }
-      // เหลือใน map = แถวที่หายไปจากชีตจริงแล้ว (ถูกลบ/ย้ายออก)
-      for (const leftover of byPos.values()) {
-        const { error: de } = await supabase.from("records").delete().eq("id", leftover.id);
-        if (de) throw de;
-        deleted++;
-      }
+      // เขียนทั้งหมด (header + insert/update/delete) ผ่าน RPC เดียวใน 1 transaction
+      // แทนการยิง insert/update/delete ทีละแถวผ่าน PostgREST — ทีละแถวคือคนละ
+      // statement ทำให้ trigger notify_sheet_push ยิง sheet-push แยกทุกแถว ชน
+      // Google Sheets write quota (429) มาแล้ว (2026-07-31) RPC ตั้ง session flag
+      // ข้าม trigger ตลอด transaction เดียวกันนี้ทั้งก้อน — ดู 0012_sheet_poll_skip_push.sql
+      const rowsPayload = rows.map((row, i) => ({ position: i, data: row, ...deriveFields(headers, row) }));
+      const { data: syncResult, error: syncErr } = await supabase.rpc("sync_sheet_records", {
+        p_sheet_id: sh.id,
+        p_team_id: sh.team_id,
+        p_headers: headers,
+        p_rows: rowsPayload,
+      });
+      if (syncErr) throw syncErr;
+      updated += syncResult?.updated ?? 0;
+      inserted += syncResult?.inserted ?? 0;
+      deleted += syncResult?.deleted ?? 0;
     }
   } catch (e) {
     return json({ ok: false, error: String((e as Error).message ?? e) }, 500);
