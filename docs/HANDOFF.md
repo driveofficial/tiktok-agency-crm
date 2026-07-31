@@ -45,8 +45,9 @@
 ## ค้างอยู่ตรงไหน
 
 - RLS ปิดอยู่ทั้ง 4 ตาราง (`records`,`sheets`,`teams`,`team_members`) — ใครมี anon key อ่าน/แก้ได้หมด (เจอตั้งแต่ต้น session ยังไม่แก้)
-- `SHEET_SYNC_SECRET` ที่ตั้งวันนี้หลุดเข้าแชทระหว่างทำ (ไม่ด่วน แต่ควรหมุนใหม่เมื่อมีเวลา — ดูขั้นตอนใน `docs/superpowers/plans/2026-07-31-fix-sheet-poll-push-loop.md` หรือทำตามที่เคยทำ: gen GUID ใหม่ → `supabase secrets set` → `vault.update_secret`)
 - `frontend/src/lib/columns.js` ยังมี `deriveFields`/`extractHandle`/`toISODate` แยกชุดของตัวเอง (ไม่ได้ dedup ไปด้วยตอนแก้ข้อถัดไป — ดูเหตุผลด้านล่าง)
+
+**หมุน `SHEET_SYNC_SECRET` ใหม่แล้ว (2026-07-31)** — ค่าเก่าหลุดเข้าแชทตอนตั้งครั้งแรก รอบนี้ generate + `supabase secrets set` + `vault.update_secret` ทั้งหมดในโพรเซส bash เดียว (`$NEWSECRET` ไม่เคย echo/print ที่ไหนเลย ไม่โผล่ในเอาต์พุตที่ผมเห็นด้วยซ้ำ) ใช้ `supabase db query --linked "..."` อัปเดต vault แทนการเปิด SQL Editor เอง — ทดสอบ sheet-poll หลังหมุนแล้ว ได้ 200 ปกติ pg_cron ที่รันอยู่ทุกนาทีก็ใช้ค่าใหม่ต่อเนื่องได้เลยเพราะอ่านจาก vault ตอนยิงจริง ไม่ต้องแก้อะไรเพิ่ม
 
 **แก้ dedup `deriveFields`/`extractHandle`/`toISODate` แล้ว (2026-07-31) — เหลือ 2 ชุดจาก 3:**
 - รวม logic ของ `sheet-sync` + `sheet-poll` เข้า `backend/supabase/functions/_shared/deriveFields.ts` ที่เดียว ทั้งสอง edge function import จากตรงนี้แทนก็อปแยก
@@ -60,4 +61,3 @@
 ## ทำอะไรต่อ
 
 1. คุยกับทีมเรื่อง RLS — เปิดใช้ + เขียน policy ให้เหมาะสม (ตอนนี้เปิด public ทั้งหมด)
-2. (ไม่ด่วน) หมุน `SHEET_SYNC_SECRET` ใหม่เพราะค่าปัจจุบันเคยหลุดเข้าแชทตอนตั้งค่า
