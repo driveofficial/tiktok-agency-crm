@@ -129,8 +129,9 @@ export const EditModal = ({ isOpen, onClose, onSubmit, headers, initialData, isS
             let v = initialData ? initialData[i] : (c.options?.[0] || "");
             if (!initialData && String(h).trim() === 'ลำดับ') v = rowCount + 1;
             if (c.type === 'date') {
-                if (!v) v = todayISO();
-                else if (v.includes('/')) {
+                if (!v) {
+                    if (!initialData && String(h).trim() === 'วันที่') v = todayISO();
+                } else if (v.includes('/')) {
                     const p = v.split('/');
                     if (p.length === 3) v = `${p[2]}-${String(p[1]).padStart(2, '0')}-${String(p[0]).padStart(2, '0')}`;
                 }
