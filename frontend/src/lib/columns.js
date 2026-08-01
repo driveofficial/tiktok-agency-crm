@@ -13,7 +13,7 @@ export const COLUMN_CONFIG = {
     "คอมเมนท์ให้ตอบแชท": { type: "select", options: ["-", "คอมเมนท์แล้ว", "ยังไม่เมนท์"] },
     "ตามแชทเอาคำตอบ": { type: "select", options: ["-", "ตามแล้ว", "ยังไม่ตาม"] },
     "ส่งของถึงยัง": { type: "select", options: ["-", "ยังไม่ส่ง", "ส่งแล้ว"] },
-    "ลงคลิปยัง": { type: "select", options: ["-", "ลงคลิปแล้ว", "ยังไม่ลง"] },
+    "ลงคลิปยัง": { type: "select", options: ["-", "ลงแล้ว", "ยังไม่ลง"] },
     "คลิปผ่านไหม": { type: "select", options: ["-", "ผ่าน", "ไม่ผ่าน"] },
     "ได้รับของวันไหน": { type: "date" },
     "วันส่งของ": { type: "date" },
@@ -230,8 +230,16 @@ export function getStatusColor(val, headerName) {
         if (s.includes("กำลังตัดสินใจ") || s.includes("รอ") || s.includes("สนใจ")) return "bg-amber-100 text-amber-700 border-amber-200";
         if (s.includes("อ่าน") || s.includes("ไม่อ่าน") || s.includes("ไม่ตอบ")) return "bg-slate-100 text-slate-600 border-slate-200";
     }
-    if (t.includes("ทัก") || t.includes("คอมเมนท์") || t.includes("ตาม") || t.includes("ส่งของ") || t.includes("ลงคลิป")) {
-        if (s.includes("แล้ว") || s.includes("ทักแล้ว") || s.includes("คอมเมนท์แล้ว") || s.includes("ตามแล้ว") || s.includes("ส่งแล้ว") || s.includes("ลงแล้ว") || s.includes("ปกติ")) return "bg-emerald-50 text-emerald-600 border-emerald-200 font-medium";
+    if (t.includes("ลงคลิป")) {
+        if (s.includes("แล้ว")) return "bg-emerald-100 text-emerald-700 border-emerald-200 font-semibold";
+        if (s.includes("ยังไม่")) return "bg-red-100 text-red-700 border-red-200 font-semibold";
+    }
+    if (t.includes("ผ่านไหม")) {
+        if (s.includes("ไม่ผ่าน")) return "bg-red-100 text-red-700 border-red-200 font-semibold";
+        if (s.includes("ผ่าน")) return "bg-emerald-100 text-emerald-700 border-emerald-200 font-semibold";
+    }
+    if (t.includes("ทัก") || t.includes("คอมเมนท์") || t.includes("ตาม") || t.includes("ส่งของ")) {
+        if (s.includes("แล้ว") || s.includes("ทักแล้ว") || s.includes("คอมเมนท์แล้ว") || s.includes("ตามแล้ว") || s.includes("ส่งแล้ว") || s.includes("ปกติ")) return "bg-emerald-50 text-emerald-600 border-emerald-200 font-medium";
         if (s.includes("ยังไม่") || s.includes("ช้า")) return "bg-orange-50 text-orange-600 border-orange-200";
         if (s.includes("อ่านไม่ตอบ")) return "bg-red-50 text-red-600 border-red-200";
     }

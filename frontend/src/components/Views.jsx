@@ -1,6 +1,6 @@
 import React from 'react';
 import { Icons } from './Icons';
-import { Checkbox, SmartSelect, SwipeableRow } from './UI_Lib';
+import { Checkbox, SmartSelect, SwipeableRow, Portal } from './UI_Lib';
 import {
     COLUMN_CONFIG, HIDDEN_COLUMNS, getColumnConfig, extractTiktokUsername,
     getDisplayName, getChecklistItems, getPipelineStage, getStageChipClasses,
@@ -11,9 +11,64 @@ const CRMTableBase = ({ headers, rows, loadingRows, onUpdateCell, onEditRow, onD
     const safeHeaders = headers || [];
     const hiddenCols = HIDDEN_COLUMNS || [];
     const isHidden = (h) => { if (!h) return true; return hiddenCols.includes(String(h).trim()); };
-    // คอลัมน์สุดท้ายที่โชว์ (ติดกับคอลัมน์ Manage ที่ sticky) — ไม่ใส่ title tooltip
-    // เพราะ browser วางกล่อง tooltip ใกล้ขอบจอแล้วมันไปทับไอคอน Manage
-    const lastVisibleIdx = safeHeaders.reduce((last, h, i) => (!isHidden(h) ? i : last), -1);
+    const isNickHeader = (h) => {
+        const hl = String(h || '').toLowerCase();
+        return hl.indexOf('ชื่อเล่น') > -1 && hl.indexOf('tiktok') === -1 && hl.indexOf('ลิงค์') === -1 && hl.indexOf('ลิงก์') === -1;
+    };
+    // [transform:translateZ(0)] บังคับให้ cell แช่แข็งมี compositing layer ของตัวเอง กัน Chromium
+    // paint เพี้ยน (เอาเนื้อหาคอลัมน์อื่นมาพ่นทับ) ซึ่งเป็นบั๊กที่รู้จักกันของ position:sticky ใน table
+    const frozenColClass = 'sticky z-20 bg-white shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)] [transform:translateZ(0)] [backface-visibility:hidden]';
+
+    // บางแท็บในชีตจริงมีคอลัมน์ว่าง/ซ้ำชื่อค้างท้ายแถว header (เช่นตี๋น้อย 27 คอลัมน์ ทั้งที่ตั้งใจไว้แค่ 19)
+    // — Supabase สะท้อนของจริงถูกแล้ว ไม่ใช่บั๊ก sync จึงแก้แค่ตอนแสดงผล: โชว์แค่ชื่อ column แรกที่เจอ
+    // ค่าที่โชว์เป็นของ column นั้นตรงๆ ไม่ดึงค่าจาก column ซ้ำมาปน ไม่แตะ index จริงตอนเขียนกลับ
+    const firstHeaderIndex = React.useMemo(() => {
+        const firstIndex = new Map();
+        safeHeaders.forEach((h, i) => {
+            const name = String(h || '').trim();
+            if (name && !firstIndex.has(name)) firstIndex.set(name, i);
+        });
+        return firstIndex;
+    }, [safeHeaders]);
+    const isDuplicateOrBlank = (h, i) => {
+        const name = String(h || '').trim();
+        if (!name) return true;
+        return firstHeaderIndex.get(name) !== i;
+    };
+
+    // แช่แข็งคอลัมน์ตั้งแต่ซ้ายสุดถึง "ชื่อเล่น" ไว้แบบชีต (freeze columns) — เลื่อนตารางไปขวาไกลแค่ไหน
+    // ก็ยังรู้ว่าแถวนี้คือใคร ไม่ต้องเลื่อนกลับไปดูซ้ายสุดทุกครั้ง วัดความกว้างจริงของแต่ละคอลัมน์
+    // ด้วย ref เพราะความกว้างไม่คงที่ (auto ตามเนื้อหา) คำนวณ left offset สะสมให้ทุกคอลัมน์แช่แข็ง
+    const visibleHeaderIndices = safeHeaders
+        .map((h, i) => i)
+        .filter(i => !isHidden(safeHeaders[i]) && !isDuplicateOrBlank(safeHeaders[i], i));
+    const nickPos = visibleHeaderIndices.findIndex(i => isNickHeader(safeHeaders[i]));
+    const frozenIndices = nickPos === -1 ? [] : visibleHeaderIndices.slice(0, nickPos + 1);
+    const thRefs = React.useRef({});
+    const [frozenOffsets, setFrozenOffsets] = React.useState({});
+    React.useLayoutEffect(() => {
+        let acc = 0;
+        const next = {};
+        for (const idx of frozenIndices) {
+            next[idx] = acc;
+            const el = thRefs.current[idx];
+            acc += el ? el.getBoundingClientRect().width : 0;
+        }
+        setFrozenOffsets(next);
+    }, [safeHeaders, rows, selectMode]);
+
+    // tooltip แสดงข้อความเต็มของ cell ที่ถูก truncate — ใช้ตำแหน่งคำนวณเอง (ไม่ใช่ title ของ
+    // browser เพราะวางกล่องเองไม่ได้) จุดยึดคือขอบซ้ายของ cell แล้วขยายไปทางขวา (จำกัดไม่ให้ล้น
+    // จอขวา) เพราะคอลัมน์แช่แข็งอยู่ทางซ้ายเสมอ — ถ้ายึดขวาแล้วขยายซ้ายจะไปทับคอลัมน์แช่แข็งได้
+    const [tip, setTip] = React.useState(null);
+    const TIP_MAX_WIDTH = 320; // ตรงกับ max-w-xs
+    const showTip = (e, text) => {
+        if (!text) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const left = Math.min(rect.left, window.innerWidth - TIP_MAX_WIDTH - 8);
+        setTip({ text, top: rect.top - 6, left });
+    };
+    const hideTip = () => setTip(null);
 
     return (
         <div className="flex-1 overflow-auto bg-white custom-scrollbar relative">
@@ -26,10 +81,20 @@ const CRMTableBase = ({ headers, rows, loadingRows, onUpdateCell, onEditRow, onD
                             </th>
                         )}
                         {safeHeaders.map((h, i) => {
-                            if (isHidden(h)) return null;
-                            return <th key={i} className="px-6 py-4 whitespace-nowrap border-b border-slate-100 bg-white/95 backdrop-blur-sm">{h}</th>;
+                            if (isHidden(h) || isDuplicateOrBlank(h, i)) return null;
+                            const frozen = frozenIndices.includes(i);
+                            return (
+                                <th
+                                    key={i}
+                                    ref={frozen ? (el) => { thRefs.current[i] = el; } : undefined}
+                                    style={frozen ? { left: frozenOffsets[i] ?? 0 } : undefined}
+                                    className={`px-6 py-4 whitespace-nowrap border-b border-slate-100 ${frozen ? frozenColClass : 'bg-white/95 backdrop-blur-sm'}`}
+                                >
+                                    {h}
+                                </th>
+                            );
                         })}
-                        <th className="px-6 py-4 text-right sticky right-0 bg-white border-b border-slate-100 z-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]">Manage</th>
+                        <th className="px-6 py-4 text-right whitespace-nowrap bg-white/95 backdrop-blur-sm border-b border-slate-100">Manage</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -48,9 +113,12 @@ const CRMTableBase = ({ headers, rows, loadingRows, onUpdateCell, onEditRow, onD
                                     <Checkbox checked={isRowSelected(i)} onChange={() => onToggleSelect(i)} size={18} />
                                 </td>
                             )}
-                            {r.map((c, j) => {
-                                const h = safeHeaders[j];
-                                if (!h || isHidden(h)) return null;
+                            {safeHeaders.map((h, j) => {
+                                // แถวที่คอลัมน์ท้ายว่างหมด Google Sheets จะตัด array ให้สั้นกว่า header จริง
+                                // (r.map ตรงๆ จะข้าม cell ท้ายไปเลยเพราะ index เกิน length ของแถว) — ใช้ safeHeaders.map แทน
+                                // แล้วอ่านค่าจาก r[j] ซึ่งได้ undefined อัตโนมัติถ้าเกินความยาวจริง ไม่ใช่ error
+                                const c = r[j];
+                                if (!h || isHidden(h) || isDuplicateOrBlank(h, j)) return null;
                                 const hl = String(h).toLowerCase();
                                 const cfg = getColumnConfig(h)?.config;
                                 const isLink = String(c || "").startsWith('http');
@@ -75,13 +143,21 @@ const CRMTableBase = ({ headers, rows, loadingRows, onUpdateCell, onEditRow, onD
                                 } else {
                                     cell = <span className="text-slate-700 font-medium">{c}</span>;
                                 }
+                                const canTip = cfg?.type !== 'select' && !isLink && String(c ?? '').trim() !== '';
+                                const frozen = frozenIndices.includes(j);
                                 return (
-                                    <td key={j} title={cfg?.type !== 'select' && !isLink && j !== lastVisibleIdx ? String(c ?? '') : undefined} className="px-6 py-3 whitespace-nowrap max-w-[200px] truncate align-middle border-b border-slate-100">
+                                    <td
+                                        key={j}
+                                        onMouseEnter={canTip ? (e) => showTip(e, String(c ?? '')) : undefined}
+                                        onMouseLeave={canTip ? hideTip : undefined}
+                                        style={frozen ? { left: frozenOffsets[j] ?? 0 } : undefined}
+                                        className={`px-6 py-3 whitespace-nowrap max-w-[200px] truncate align-middle border-b border-slate-100 ${frozen ? frozenColClass : ''}`}
+                                    >
                                         {cell}
                                     </td>
                                 );
                             })}
-                            <td className="px-6 py-3 text-right sticky right-0 bg-white group-hover:bg-slate-50 transition-colors z-30 align-middle border-b border-slate-100 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]">
+                            <td className="px-6 py-3 text-right whitespace-nowrap group-hover:bg-slate-50 transition-colors align-middle border-b border-slate-100">
                                 <div className="flex justify-end items-center gap-1">
                                     {(() => {
                                         const items = getChecklistItems(safeHeaders, r);
@@ -104,6 +180,16 @@ const CRMTableBase = ({ headers, rows, loadingRows, onUpdateCell, onEditRow, onD
                     ))}
                 </tbody>
             </table>
+            {tip && (
+                <Portal>
+                    <div
+                        className="fixed z-[9999] -translate-y-full max-w-xs whitespace-normal break-words rounded-lg bg-slate-800 px-2.5 py-1.5 text-xs text-white shadow-xl pointer-events-none"
+                        style={{ top: tip.top, left: tip.left }}
+                    >
+                        {tip.text}
+                    </div>
+                </Portal>
+            )}
         </div>
     );
 };

@@ -102,13 +102,34 @@ export const EditModal = ({ isOpen, onClose, onSubmit, headers, initialData, isS
     // (HIDDEN_COLUMNS ใช้กรองแค่มุมมองตาราง/การ์ดเท่านั้น)
     const isHidden = () => false;
 
+    // บางแท็บในชีตจริงมีคอลัมน์ว่าง/ซ้ำชื่อค้างท้าย header (เช่นตี๋น้อย 27 คอลัมน์ ทั้งที่ตั้งใจไว้แค่ 19)
+    // — ไม่โชว์ input ซ้ำในฟอร์ม แต่ยัง set ค่าเดิมของทุก index ไว้ตอน submit เหมือนเดิม ไม่เสียข้อมูล
+    const firstHeaderIndex = React.useMemo(() => {
+        const firstIndex = new Map();
+        (headers || []).forEach((h, i) => {
+            const name = String(h || '').trim();
+            if (name && !firstIndex.has(name)) firstIndex.set(name, i);
+        });
+        return firstIndex;
+    }, [headers]);
+    const isDuplicateOrBlank = (i) => {
+        const name = String((headers || [])[i] || '').trim();
+        if (!name) return true;
+        return firstHeaderIndex.get(name) !== i;
+    };
+
+    // วันส่งของ กรอกได้เฉพาะตอนสถานะเป็น "รับข้อเสนอ" หรือ "ดีลจบ" — กันพิมพ์วันส่งของก่อนดีลจะจบจริง
+    const statusIdx = React.useMemo(() => (headers || []).findIndex(h => getColumnConfig(h)?.key === 'สถานะ'), [headers]);
+    const statusVal = statusIdx !== -1 ? form[statusIdx] : undefined;
+    const shipDateUnlocked = statusVal === 'รับข้อเสนอ' || statusVal === 'ดีลจบ';
+
     const essentialIdx = React.useMemo(() => {
         const hs = (headers || []).map(h => String(h || ''));
         const used = new Set();
         const lc = s => s.toLowerCase();
         const pick = (pred) => {
             for (let i = 0; i < hs.length; i++) {
-                if (used.has(i) || isHidden(hs[i])) continue;
+                if (used.has(i) || isHidden(hs[i]) || isDuplicateOrBlank(i)) continue;
                 if (pred(hs[i])) { used.add(i); return i; }
             }
             return -1;
@@ -149,7 +170,7 @@ export const EditModal = ({ isOpen, onClose, onSubmit, headers, initialData, isS
 
     const quick = !initialData && essentialIdx.length > 0;
     const essentialSet = new Set(essentialIdx);
-    const allNonHidden = (headers || []).map((h, i) => i).filter(i => !isHidden(headers[i]));
+    const allNonHidden = (headers || []).map((h, i) => i).filter(i => !isHidden(headers[i]) && !isDuplicateOrBlank(i));
     const restIdx = allNonHidden.filter(i => !essentialSet.has(i));
 
     const renderField = (i, isFirst) => {
@@ -158,6 +179,8 @@ export const EditModal = ({ isOpen, onClose, onSubmit, headers, initialData, isS
         const isText = c.type !== 'select';
         const enterToAdd = !initialData && isText && (c.type || 'text') !== 'date';
         const label = FIELD_LABEL_OVERRIDES[h] || h;
+        const isShipDate = getColumnConfig(h)?.key === 'วันส่งของ';
+        const locked = isShipDate && !shipDateUnlocked;
         return (
             <div key={i} className="space-y-1">
                 <label className="text-xs font-bold text-slate-500 uppercase flex justify-between">
@@ -170,12 +193,14 @@ export const EditModal = ({ isOpen, onClose, onSubmit, headers, initialData, isS
                         ref={isFirst ? firstInputRef : undefined}
                         type={c.type || 'text'}
                         readOnly={c.readOnly}
-                        className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-slate-200 ${c.readOnly ? 'bg-slate-100 text-slate-400' : 'bg-white'}`}
+                        disabled={locked}
+                        className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-slate-200 ${c.readOnly || locked ? 'bg-slate-100 text-slate-400' : 'bg-white'}`}
                         value={form[i] || ""}
                         onChange={e => setForm({ ...form, [i]: e.target.value })}
                         onKeyDown={enterToAdd ? (e) => { if (e.key === 'Enter' && !isSubmitting) { e.preventDefault(); submit(true); } } : undefined}
                     />
                 )}
+                {locked && <p className="text-[11px] text-slate-400">ต้องมีสถานะ "รับข้อเสนอ" หรือ "ดีลจบ" ก่อนถึงจะกรอกได้</p>}
             </div>
         );
     };
