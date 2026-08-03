@@ -102,18 +102,26 @@ Deno.serve(async (req: Request) => {
   );
 
   let updated = 0, inserted = 0, deleted = 0, sheetsSynced = 0;
+  const failures: { sheet_id: string; label: string; error: string }[] = [];
 
+  let token: string;
   try {
-    const token = await getAccessToken(sa);
+    token = await getAccessToken(sa);
+  } catch (e) {
+    return json({ ok: false, error: String((e as Error).message ?? e) }, 500);
+  }
 
-    const { data: sheetsToSync, error: se } = await supabase
-      .from("sheets")
-      .select("id,team_id,label,headers,spreadsheet_id,tab_name")
-      .not("spreadsheet_id", "is", null)
-      .not("tab_name", "is", null);
-    if (se) throw se;
+  const { data: sheetsToSync, error: se } = await supabase
+    .from("sheets")
+    .select("id,team_id,label,headers,spreadsheet_id,tab_name")
+    .not("spreadsheet_id", "is", null)
+    .not("tab_name", "is", null);
+  if (se) return json({ ok: false, error: se.message }, 500);
 
-    for (const sh of sheetsToSync ?? []) {
+  // แต่ละชีตแยก try/catch ของตัวเอง — ชีตเดียวพัง (เช่น แท็บถูกเปลี่ยนชื่อ/
+  // ถูกถอนสิทธิ์เข้าถึง) ต้องไม่ทำให้ชีตอื่นที่เหลือในรอบ poll นี้หยุด sync ไปด้วย
+  for (const sh of sheetsToSync ?? []) {
+    try {
       const values = await fetchSheetValues(token, sh.spreadsheet_id as string, sh.tab_name as string);
       const headers = values[0] ?? [];
       const rows = values.slice(1);
@@ -135,10 +143,10 @@ Deno.serve(async (req: Request) => {
       updated += syncResult?.updated ?? 0;
       inserted += syncResult?.inserted ?? 0;
       deleted += syncResult?.deleted ?? 0;
+    } catch (e) {
+      failures.push({ sheet_id: sh.id as string, label: sh.label as string, error: String((e as Error).message ?? e) });
     }
-  } catch (e) {
-    return json({ ok: false, error: String((e as Error).message ?? e) }, 500);
   }
 
-  return json({ ok: true, sheets: sheetsSynced, updated, inserted, deleted });
+  return json({ ok: failures.length === 0, sheets: sheetsSynced, updated, inserted, deleted, failures });
 });

@@ -143,6 +143,16 @@ Deno.serve(async (req: Request) => {
       const sheetId = sheetRow.id as string;
       sheetCount++;
 
+      // กัน payload ว่างเปล่า (บั๊ก/ส่งพลาดจากฝั่ง caller) ลบข้อมูลทั้งชีตทิ้ง —
+      // ถ้า rows ว่างและชีตนี้มี record อยู่แล้วจริง ข้ามชีตนี้ทั้งก้อนแทนการ
+      // full-replace เป็นค่าว่าง (เทียบ 0014_fix_sync_empty_wipe.sql)
+      if ((sh.rows ?? []).length === 0) {
+        const { count, error: ce } = await supabase
+          .from("records").select("id", { count: "exact", head: true }).eq("sheet_id", sheetId);
+        if (ce) throw ce;
+        if ((count ?? 0) > 0) continue;
+      }
+
       // 3) full-replace records ของชีตนี้ (snapshot semantics)
       const { error: de } = await supabase.from("records").delete().eq("sheet_id", sheetId);
       if (de) throw de;

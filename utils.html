@@ -476,13 +476,15 @@ window.deleteRow = async function(sheetName, rowIndex, expectedRow) {
 };
 
 // Re-insert a deleted row at its original position (undo delete)
-window.insertRow = async function(sheetName, rowIndex, row) {
+// expectedLastRow: lastRowAfterDelete ที่ได้จาก deleteRow ตอนลบ — ให้ server เช็คว่าโครงสร้างชีต
+// (จำนวนแถว) ไม่เปลี่ยนไประหว่างรอกดเลิกทำ ถ้าเปลี่ยนแล้วจะ conflict แทนแทรกผิดตำแหน่งเงียบๆ
+window.insertRow = async function(sheetName, rowIndex, row, expectedLastRow) {
     if (window.isGAS) {
         return new Promise(function(resolve) {
             google.script.run
                 .withSuccessHandler(function(res) { resolve(res); })
                 .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
-                .insertRowData(sheetName, rowIndex, row);
+                .insertRowData(sheetName, rowIndex, row, expectedLastRow);
         });
     } else {
         await new Promise(function(r) { setTimeout(r, 400); });

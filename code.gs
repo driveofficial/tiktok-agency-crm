@@ -48,9 +48,15 @@ function getCachedData(key) {
 
 function setCachedData(key, data, durationSec) {
   try {
-    CACHE.put(key, JSON.stringify(data), durationSec);
+    const json = JSON.stringify(data);
+    // CacheService จำกัด 100KB/key แบบเงียบ (throw ตอน put) — ใกล้ limit ให้ log เตือนไว้ก่อน
+    // ไม่งั้น cache miss ทุกครั้งแบบไม่มีใครรู้ตัว (dashboard/dedup กลับไปสแกนทั้งชีตทุกครั้งอีกครั้ง)
+    if (json.length > 90000) {
+      console.error(`Cache "${key}" ใกล้/เกิน limit 100KB (${json.length} bytes) — อาจ put ไม่ผ่านเงียบๆ`);
+    }
+    CACHE.put(key, json, durationSec);
   } catch (e) {
-    console.error("Cache put error", e);
+    console.error("Cache put error", key, e);
   }
 }
 
@@ -531,19 +537,22 @@ function mergeStats(target, source) {
 // แปลงปี พ.ศ. → ค.ศ. (เช่น 2569 → 2026) ถ้าปี >= 2400 เพื่อให้จัดกลุ่มช่วงเวลาถูกต้อง
 function normYear(y) { return y >= 2400 ? y - 543 : y; }
 
+// ตัดวันที่โรลโอเวอร์ทิ้ง (เช่น 31/02 → JS เลื่อนไปมี.ค. เงียบๆ) แทนการยอมรับเดือนผิด
+function buildValidDate(y, monthIdx, day) {
+  const d = new Date(y, monthIdx, day);
+  return d.getMonth() === monthIdx ? d : null;
+}
+
 function parseDate(dateStr) {
   if (!dateStr) return null;
-  // Format: YYYY-MM-DD
-  if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-    const parts = dateStr.split('-');
-    return new Date(normYear(+parts[0]), parts[1] - 1, parts[2]);
-  }
-  // Format: DD/MM/YYYY or D/M/YYYY (Thai Format Support)
-  if (dateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
-    const parts = dateStr.split('/');
-    return new Date(normYear(+parts[2]), parts[1] - 1, parts[0]);
-  }
-  // Fallback
+  // Format: YYYY-M-D หรือ YYYY-MM-DD (เผื่อไม่ zero-pad เดือน/วัน ไม่งั้นปี พ.ศ. ไม่ zero-pad
+  // จะหลุดไปเข้า fallback ด้านล่างที่ข้าม normYear ไปเลย)
+  let m = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return buildValidDate(normYear(+m[1]), +m[2] - 1, +m[3]);
+  // Format: D/M/YYYY หรือ DD/MM/YYYY (Thai Format Support)
+  m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return buildValidDate(normYear(+m[3]), +m[2] - 1, +m[1]);
+  // Fallback: format อื่นที่ไม่เข้ารูปแบบข้างต้น (ไม่มี normYear — อาจเป็นปี ค.ศ. ล้วนอยู่แล้ว)
   const d = new Date(dateStr);
   return isNaN(d.getTime()) ? null : d;
 }
@@ -558,8 +567,10 @@ function formatDateISO(date) {
 function getStartOfWeek(date) {
   const d = new Date(date);
   const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); 
-  return new Date(d.setDate(diff));
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0); // ไม่งั้นแถวเช้าวันจันทร์หลุดจาก week bucket จนกว่าจะถึงเวลาเดียวกับตอน cache ถูกสร้าง
+  return d;
 }
 
 // --------------------------------------------------------------------------
@@ -627,6 +638,7 @@ function updateData(displayName, rowIndex, rowData, expectedRow) {
     const stringRow = rowData.map(d => String(d === null || d === undefined ? '' : d));
     sheet.getRange(actualRow, 1, 1, stringRow.length).setValues([stringRow]);
     clearDashboardCache();
+    CACHE.remove(CACHE_KEY_DIRECTORY); // แก้ไขแถว (อาจแก้ลิงก์/เบอร์/ชื่อ) → ล้าง index กัน checkDuplicate ค้างข้อมูลเก่า
     return { success: true };
   } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
 }
@@ -642,20 +654,30 @@ function deleteData(displayName, rowIndex, expectedRow) {
     if (!rowMatches(sheet, actualRow, expectedRow)) return { success: false, conflict: true, error: CONFLICT_MSG };
     sheet.deleteRow(actualRow);
     clearDashboardCache();
-    return { success: true };
+    CACHE.remove(CACHE_KEY_DIRECTORY); // ลบครีเอเตอร์ → ล้าง index กัน checkDuplicate เตือนซ้ำผิดๆ ด้วยข้อมูลเก่า
+    // ส่ง lastRow หลังลบกลับไปให้ client เก็บไว้เทียบตอน undo (ดู insertRowData) — ถ้ามีคนอื่นแก้โครงสร้าง
+    // แถว (เพิ่ม/ลบ) ของชีตนี้ระหว่างรอกดเลิกทำ lastRow จะไม่ตรง แล้ว undo จะปฏิเสธแทนที่จะแทรกผิดตำแหน่ง
+    return { success: true, lastRowAfterDelete: sheet.getLastRow() };
   } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
 }
 
 // Re-insert a previously deleted row back at its ORIGINAL position (used by "undo delete" in the UI).
 // Positional insert — not appendRow — so the restored row lands exactly where it was, keeping the
 // sheet an exact match of the app (Product Principle #1: ชีตคือแหล่งความจริง).
-function insertRowData(displayName, rowIndex, rowData) {
+//
+// expectedLastRow (optional, มาจาก deleteData ตอนลบ): ป้องกันกรณีอีกเครื่อง/อีกคน insert หรือ delete
+// แถวอื่นในชีตนี้ระหว่างที่ toast "เลิกทำ" ยังค้างอยู่ — ถ้าจำนวนแถวไม่ตรงกับตอนลบ แปลว่าโครงสร้างเปลี่ยนไป
+// แล้ว การแทรกกลับที่ตำแหน่งเดิมจะผิดที่ ให้ conflict แทนดีกว่าแทรกผิดเงียบๆ (เดิมไม่มีการเช็คนี้เลย)
+function insertRowData(displayName, rowIndex, rowData, expectedLastRow) {
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     const info = getTargetInfo(displayName);
     const ss = SpreadsheetApp.openById(info.id);
     const sheet = ss.getSheetByName(info.tabName);
+    if (expectedLastRow !== null && expectedLastRow !== undefined && sheet.getLastRow() !== expectedLastRow) {
+      return { success: false, conflict: true, error: CONFLICT_MSG };
+    }
     const actualRow = rowIndex + 2; // same +2 convention as updateData/deleteData (header row + 1-based)
     const stringRow = rowData.map(d => String(d === null || d === undefined ? '' : d));
     // If the target row is beyond the sheet's allocated rows, just append; otherwise insert-and-shift.
@@ -677,6 +699,7 @@ function insertRowData(displayName, rowIndex, rowData) {
 
 function bulkUpdateCell(displayName, rowIndices, colIndex, value, expectedRows) {
   const lock = LockService.getScriptLock();
+  let appliedCount = 0;
   try {
     lock.waitLock(10000);
     const info = getTargetInfo(displayName);
@@ -691,14 +714,22 @@ function bulkUpdateCell(displayName, rowIndices, colIndex, value, expectedRows) 
     const stringValue = String(value === null || value === undefined ? '' : value);
     rowIndices.forEach(rowIndex => {
       sheet.getRange(rowIndex + 2, colIndex + 1).setValue(stringValue);
+      appliedCount++; // การเขียนแต่ละแถวไม่ atomic ต่อกัน — ถ้าแถวถัดไปพัง แถวก่อนหน้านี้เขียนไปแล้วจริง
     });
-    clearDashboardCache();
     return { success: true };
-  } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
+  } catch (err) {
+    // เขียนไปแล้วบางแถวก่อนพังกลางทาง (appliedCount > 0) — บอก client ว่ามีการเขียนจริงเกิดขึ้นแล้ว
+    // จะได้โหลดข้อมูลจริงจากชีตมาเทียบ แทนที่จะเชื่อ optimistic UI เดิมที่ไม่ตรงกับชีตแล้ว
+    return { success: false, partial: appliedCount > 0, applied: appliedCount, error: err.toString() };
+  } finally {
+    if (appliedCount > 0) { clearDashboardCache(); CACHE.remove(CACHE_KEY_DIRECTORY); }
+    lock.releaseLock();
+  }
 }
 
 function bulkDeleteRows(displayName, rowIndices, expectedRows) {
   const lock = LockService.getScriptLock();
+  let appliedCount = 0;
   try {
     lock.waitLock(10000);
     const info = getTargetInfo(displayName);
@@ -714,10 +745,15 @@ function bulkDeleteRows(displayName, rowIndices, expectedRows) {
     const sortedDesc = [...rowIndices].sort((a, b) => b - a);
     sortedDesc.forEach(rowIndex => {
       sheet.deleteRow(rowIndex + 2);
+      appliedCount++; // ไม่ atomic — พังกลางทางแปลว่าลบไปแล้วบางแถวจริง
     });
-    clearDashboardCache();
     return { success: true };
-  } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
+  } catch (err) {
+    return { success: false, partial: appliedCount > 0, applied: appliedCount, error: err.toString() };
+  } finally {
+    if (appliedCount > 0) { clearDashboardCache(); CACHE.remove(CACHE_KEY_DIRECTORY); }
+    lock.releaseLock();
+  }
 }
 
 // --------------------------------------------------------------------------

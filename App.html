@@ -7,14 +7,22 @@
             // จำนวนวันที่ "รอตอบ" ถือว่านานพอจะเตือนให้ตามงาน
             const STALE_WAIT_DAYS = 3;
 
-            // แปลงค่าวันที่ในชีต → epoch ms (รองรับ YYYY-MM-DD, D/M/YYYY, และปี พ.ศ. >=2400)
+            // แปลงค่าวันที่ในชีต → epoch ms (รองรับ YYYY-M-D, D/M/YYYY, และปี พ.ศ. >=2400)
             const parseRowDate = (raw) => {
                 const s = String(raw || '').trim();
                 const ny = (y) => (y >= 2400 ? y - 543 : y);
-                let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-                if (m) return new Date(ny(+m[1]), +m[2] - 1, +m[3]).getTime();
+                // เดือน/วันไม่ zero-pad ต้องรองรับด้วย (\d{1,2}) ไม่งั้นปี พ.ศ. ที่พิมพ์ไม่ zero-pad
+                // (เช่น "2569-8-3") จะหลุดไปเข้า Date.parse fallback ด้านล่างที่ไม่แปลง พ.ศ.→ค.ศ. เลย
+                let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+                if (m) {
+                    const mo = +m[2] - 1, d = new Date(ny(+m[1]), mo, +m[3]);
+                    return d.getMonth() === mo ? d.getTime() : NaN; // ตัดวันที่โรลโอเวอร์ (เช่น 31/02) ทิ้ง
+                }
                 m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-                if (m) return new Date(ny(+m[3]), +m[2] - 1, +m[1]).getTime();
+                if (m) {
+                    const mo = +m[2] - 1, d = new Date(ny(+m[3]), mo, +m[1]);
+                    return d.getMonth() === mo ? d.getTime() : NaN;
+                }
                 const t = Date.parse(s);
                 return isNaN(t) ? NaN : t;
             };
@@ -631,10 +639,18 @@
                     const normYear = (y) => (y >= 2400 ? y - 543 : y);
                     const parseDate = (raw) => {
                         const s = String(raw || '').trim();
-                        let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-                        if (m) return new Date(normYear(+m[1]), +m[2] - 1, +m[3]).getTime();
+                        // เดือน/วันไม่ zero-pad ต้องรองรับด้วย (\d{1,2}) ไม่งั้นปี พ.ศ. ไม่ zero-pad
+                        // หลุดไปเข้า Date.parse fallback ที่ไม่แปลง พ.ศ.→ค.ศ.
+                        let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+                        if (m) {
+                            const mo = +m[2] - 1, d = new Date(normYear(+m[1]), mo, +m[3]);
+                            return d.getMonth() === mo ? d.getTime() : NaN;
+                        }
                         m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-                        if (m) return new Date(normYear(+m[3]), +m[2] - 1, +m[1]).getTime();
+                        if (m) {
+                            const mo = +m[2] - 1, d = new Date(normYear(+m[3]), mo, +m[1]);
+                            return d.getMonth() === mo ? d.getTime() : NaN;
+                        }
                         const t = Date.parse(s); return isNaN(t) ? NaN : t;
                     };
                     const dateIdx = headers.findIndex(h => h && h.includes('วันที่'));
@@ -948,10 +964,13 @@
                                     showToast('warning', 'กู้คืนไม่ได้แล้ว', 'มีการแก้ไขข้อมูลอื่นหลังจากลบไปแล้ว');
                                     return;
                                 }
-                                const undoRes = await window.insertRow(activeTab, rowIndex, deletedRow);
+                                const undoRes = await window.insertRow(activeTab, rowIndex, deletedRow, res.lastRowAfterDelete);
                                 if (undoRes.success) {
                                     showToast('success', 'กู้คืนแล้ว', 'นำรายการกลับมาที่เดิมแล้ว');
                                     refreshDashboardSilently();
+                                    await loadData(activeTab, true);
+                                } else if (undoRes.conflict) {
+                                    showAlert({ type: 'warning', title: 'กู้คืนไม่ได้แล้ว', description: 'มีการแก้ไขชีตนี้จากที่อื่นหลังจากลบไปแล้ว' });
                                     await loadData(activeTab, true);
                                 } else {
                                     showAlert({ type: 'error', title: 'กู้คืนไม่สำเร็จ', description: undoRes.error || 'ไม่สามารถกู้คืนรายการได้' });
@@ -1006,7 +1025,18 @@
                             await loadData(activeTab, true);
                             return;
                         }
-                        if (!res.success) throw new Error(res.error);
+                        if (!res.success) {
+                            // เขียนไม่ atomic ฝั่ง server — ถ้าพังกลางทางแปลว่าบางแถวเขียนไปแล้วจริง
+                            // revert กลับ oldRows เฉยๆ จะทำให้จอไม่ตรงกับชีต ต้องโหลดของจริงมาแทน
+                            if (res.partial) {
+                                showAlert({ type: 'error', title: 'อัปเดตสำเร็จไม่ครบ', description: `เขียนสำเร็จ ${res.applied || 0}/${idxArr.length} รายการก่อนเจอปัญหา ระบบจะโหลดข้อมูลจริงจากชีตให้ใหม่` });
+                                setSelectMode(false); setSelectedRows(new Set());
+                                refreshDashboardSilently();
+                                await loadData(activeTab, true);
+                                return;
+                            }
+                            throw new Error(res.error);
+                        }
                         localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
                         showToast('success', 'อัปเดตแล้ว', `อัปเดตสถานะ ${idxArr.length} รายการแล้ว`);
                         setSelectMode(false); setSelectedRows(new Set());
@@ -1046,7 +1076,18 @@
                             await loadData(activeTab, true);
                             return;
                         }
-                        if (!res.success) throw new Error(res.error);
+                        if (!res.success) {
+                            // ไม่ atomic ฝั่ง server — พังกลางทางแปลว่าลบไปแล้วบางแถวจริง ต้องโหลดของจริง
+                            // จากชีตมาแทน ไม่ใช่ revert กลับ oldRows เฉยๆ (จอจะไม่ตรงกับชีต)
+                            if (res.partial) {
+                                showAlert({ type: 'error', title: 'ลบสำเร็จไม่ครบ', description: `ลบสำเร็จ ${res.applied || 0}/${idxArr.length} รายการก่อนเจอปัญหา ระบบจะโหลดข้อมูลจริงจากชีตให้ใหม่` });
+                                setSelectMode(false); setSelectedRows(new Set());
+                                refreshDashboardSilently();
+                                await loadData(activeTab, true);
+                                return;
+                            }
+                            throw new Error(res.error);
+                        }
                         showToast('success', 'ลบแล้ว', `ลบ ${idxArr.length} รายการแล้ว`);
                         setSelectMode(false); setSelectedRows(new Set());
                         refreshDashboardSilently();

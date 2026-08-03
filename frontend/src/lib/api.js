@@ -57,9 +57,13 @@ const PAGE_SIZE = 1000;
 async function fetchAllRecords(sheetId) {
   const out = [];
   for (let from = 0; ; from += PAGE_SIZE) {
+    // ต้องมี tiebreaker (id) ต่อจาก position เสมอ — position ไม่มี unique constraint
+    // เดิม เผื่อมีค่าซ้ำ ถ้า sort แค่ position เพียวๆ การแบ่งหน้าข้าม request
+    // (.range ต่างรอบ) อาจเรียง tie ไม่เหมือนเดิม ทำให้แถวหายหรือซ้ำที่รอยต่อหน้า
+    // (ดูจุดเดียวกันที่แก้ไว้แล้วใน sheet-push/index.ts)
     const { data, error } = await supabase.from('records')
       .select('id,position,data,version').eq('sheet_id', sheetId)
-      .order('position').range(from, from + PAGE_SIZE - 1);
+      .order('position').order('id').range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
     out.push(...(data || []));
     if (!data || data.length < PAGE_SIZE) break;
@@ -85,20 +89,31 @@ export async function fetchSheetData(sheetId) {
 // ---------------------------------------------------------------------------
 // CREATE
 // ---------------------------------------------------------------------------
+// หา position ว่างแล้ว insert — ชน unique(sheet_id,position) ได้ถ้า 2 คน add
+// พร้อมกันเกือบเป๊ะ (อ่าน max เดิมได้ค่าเดียวกัน) retry อ่านใหม่แล้วลองอีกครั้ง
+async function insertAtNextPosition(sheetId, teamId, headers, row, attemptsLeft = 3) {
+  const { data: last } = await supabase
+    .from('records').select('position').eq('sheet_id', sheetId)
+    .order('position', { ascending: false }).limit(1).maybeSingle();
+  const position = (last?.position ?? -1) + 1;
+
+  const { data: inserted, error } = await supabase.from('records')
+    .insert({ sheet_id: sheetId, team_id: teamId, position, data: row, ...deriveFields(headers, row) })
+    .select('id,version,position,data').single();
+  if (error) {
+    if (error.code === '23505' && attemptsLeft > 0) {
+      return insertAtNextPosition(sheetId, teamId, headers, row, attemptsLeft - 1);
+    }
+    throw error;
+  }
+  return inserted;
+}
+
 export async function addRow(sheetId, row) {
   try {
     const headers = sheetHeaders[sheetId] || (await ensureHeaders(sheetId));
     const teamId = await ensureTeamId(sheetId);
-    // position ถัดจากท้ายสุด
-    const { data: last } = await supabase
-      .from('records').select('position').eq('sheet_id', sheetId)
-      .order('position', { ascending: false }).limit(1).maybeSingle();
-    const position = (last?.position ?? -1) + 1;
-
-    const { data: inserted, error } = await supabase.from('records')
-      .insert({ sheet_id: sheetId, team_id: teamId, position, data: row, ...deriveFields(headers, row) })
-      .select('id,version,position,data').single();
-    if (error) throw error;
+    const inserted = await insertAtNextPosition(sheetId, teamId, headers, row);
 
     if (!rowMeta[sheetId]) rowMeta[sheetId] = [];
     rowMeta[sheetId].push({ id: inserted.id, version: inserted.version, position: inserted.position, data: inserted.data });
@@ -154,10 +169,19 @@ export async function insertRow(sheetId, rowIndex, row) {
     const teamId = await ensureTeamId(sheetId);
     const position = pendingUndo[sheetId] ?? rowIndex;   // ตำแหน่งเดิมที่เว้นว่างไว้หลังลบ
 
-    const { data: inserted, error } = await supabase.from('records')
+    let inserted, error;
+    ({ data: inserted, error } = await supabase.from('records')
       .insert({ sheet_id: sheetId, team_id: teamId, position, data: row, ...deriveFields(headers, row) })
-      .select('id,version,position,data').single();
-    if (error) throw error;
+      .select('id,version,position,data').single());
+    if (error) {
+      // ตำแหน่งเดิมถูกคนอื่น insert ไปแล้วก่อนกดกู้คืน (ชน unique(sheet_id,position))
+      // — ต่อท้ายแทน ดีกว่าทำ undo ล้มเหลวไปเลย
+      if (error.code === '23505') {
+        inserted = await insertAtNextPosition(sheetId, teamId, headers, row);
+      } else {
+        throw error;
+      }
+    }
 
     if (!rowMeta[sheetId]) rowMeta[sheetId] = [];
     rowMeta[sheetId].splice(rowIndex, 0, { id: inserted.id, version: inserted.version, position: inserted.position, data: inserted.data });
@@ -204,6 +228,13 @@ export async function bulkDeleteRows(sheetId, rowIndices, _expectedRows) {
     if (metas.some(m => !m)) return { success: false, conflict: true, error: CONFLICT_MSG };
 
     const ids = metas.map(m => m.id);
+    // เช็ค version ก่อนลบ เหมือน bulkUpdateCell — กันลบทับแถวที่เพิ่งถูกแก้โดยคนอื่น
+    // (หรือ sheet-poll sync) แบบเงียบๆ โดยไม่มี conflict warning
+    const { data: cur, error: ce } = await supabase.from('records').select('id,version').in('id', ids);
+    if (ce) throw ce;
+    const curVer = Object.fromEntries((cur || []).map(r => [r.id, r.version]));
+    if (metas.some(m => curVer[m.id] !== m.version)) return { success: false, conflict: true, error: CONFLICT_MSG };
+
     const { error } = await supabase.from('records').delete().in('id', ids);
     if (error) throw error;
 
