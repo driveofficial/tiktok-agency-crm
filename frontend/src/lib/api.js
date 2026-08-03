@@ -268,10 +268,23 @@ export async function searchTeamData(teamSource, query) {
 // ---------------------------------------------------------------------------
 // DASHBOARD — RPC flat rows → reshape เป็น { overall, byTeam, bySheet }
 // ---------------------------------------------------------------------------
+// get_dashboard_rows() คืนหนึ่งแถวต่อกลุ่ม (sheet x วัน x สถานะ x แพลตฟอร์ม x ...)
+// จำนวนกลุ่มมากกว่าจำนวนครีเอเตอร์จริงได้ง่าย (เกิน PostgREST cap 1000 ตั้งแต่ ~1500
+// แถวขึ้นไป) ต้องแบ่งหน้าเหมือน fetchAllRecords ไม่งั้นยอดรวมบนแดชบอร์ดจะขาดหายเงียบๆ
+async function fetchAllDashboardRows() {
+  const out = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase.rpc('get_dashboard_rows').range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
 export async function fetchDashboardData() {
   try {
-    const { data, error } = await supabase.rpc('get_dashboard_rows');
-    if (error) throw error;
+    const data = await fetchAllDashboardRows();
     return ok({ data: reshapeDashboard(data || []) });
   } catch (e) { return fail(e); }
 }
