@@ -4,9 +4,6 @@
         (() => {
             const React = window.React;
             const Icons = window.Icons;
-            // Requires DashboardFilterSelector
-
-            // --- ANIMATION UTILS ---
             const CountUp = ({ end, duration = 1500 }) => {
                 const [count, setCount] = React.useState(0);
                 React.useEffect(() => {
@@ -29,7 +26,6 @@
 
             const EMPTY_BUCKET = { total: 0, byStatus: {}, byPlatform: {}, byCommission: {}, byShipped: {}, byClip: {} };
 
-            // Picks the right aggregated bucket (today/week/month/all/custom-range/specific-month) out of a stats object
             const getBucketForTimeframe = (s, timeFrame, customDateRange) => {
                 if (!s) return EMPTY_BUCKET;
                 if (['all', 'today', 'week', 'month'].includes(timeFrame)) {
