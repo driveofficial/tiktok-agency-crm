@@ -146,9 +146,12 @@ const TaskFilterDropdown = ({ filters, active, onSelect, onClear, hideBlank, onT
     }, []);
     const activeChip = filters.find(f => f.key === active);
     const anyOn = !!active || hideBlank;
+    // ปุ่มหลักเปลี่ยนสีตามหัวข้อที่เลือกอยู่ (ใช้สีเดียวกับ activeCls ของ chip นั้น) แทนสีเขียวคงที่เดิม
+    // ไม่มีหัวข้อเลือก (เช่น เลือกแค่ "ซ่อนแถวว่าง") ใช้สีเทาเข้มกลางๆ แทน
+    const onColorCls = activeChip ? activeChip.activeCls : (anyOn ? 'bg-slate-800 text-white border-slate-800' : '');
     return (
         <div className="relative z-50 inline-block" ref={ref}>
-            <button onClick={() => setOpen(!open)} aria-expanded={open} className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border shadow-sm transition-all duration-200 min-w-[150px] justify-between ${anyOn ? 'bg-[#215E61] text-white border-[#215E61]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'} ${open ? 'ring-2 ring-offset-1 ring-slate-200' : ''} hover:-translate-y-0.5 hover:shadow-md active:translate-y-0`}>
+            <button onClick={() => setOpen(!open)} aria-expanded={open} className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border shadow-sm transition-all duration-200 min-w-[150px] justify-between ${anyOn ? onColorCls : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'} ${open ? 'ring-2 ring-offset-1 ring-slate-200' : ''} hover:-translate-y-0.5 hover:shadow-md active:translate-y-0`}>
                 <span className="flex items-center gap-2 truncate text-sm font-bold">
                     <Icons.Filter size={14} /> งานค้าง
                     {anyOn && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white/25">{activeChip ? activeChip.label : 'ซ่อนว่าง'}</span>}
@@ -511,16 +514,10 @@ const App = () => {
     }, []);
 
     const filteredRows = React.useMemo(() => {
-        const normYear = (y) => (y >= 2400 ? y - 543 : y);
-        const parseDate = (raw) => {
-            const s = String(raw || '').trim();
-            let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-            if (m) return new Date(normYear(+m[1]), +m[2] - 1, +m[3]).getTime();
-            m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-            if (m) return new Date(normYear(+m[3]), +m[2] - 1, +m[1]).getTime();
-            const t = Date.parse(s); return isNaN(t) ? NaN : t;
-        };
-        const dateIdx = headers.findIndex(h => h && h.includes('วันที่'));
+        // เรียงตามคอลัมน์ "ลำดับ" (เลขรันเพิ่มตอน add ทีละแถว) แทนวันที่ — วันที่บางแถวพิมพ์ผิดรูป
+        // ในชีตจริง (เช่น "20226-04-28" ปีเกินมา 1 หลัก) parse ไม่ได้แล้วหลุดไปเรียงตาม
+        // originalIndex เฉยๆ ทำให้ลำดับดูสลับมั่วเวลาปนกับแถวที่ parse วันที่ได้ปกติ
+        const seqIdx = headers.findIndex(h => h && h.trim() === 'ลำดับ');
         const list = rows.map((r, i) => ({ data: r, originalIndex: i })).filter(item => {
             const matchesSearch = !debouncedSearchTerm || item.data.some(cell => String(cell).toLowerCase().includes(debouncedSearchTerm.toLowerCase()));
             let matchesStatus = true;
@@ -545,9 +542,9 @@ const App = () => {
         });
         const dir = sortOrder === 'newest' ? -1 : 1;
         list.sort((a, b) => {
-            const ka = dateIdx > -1 ? parseDate(a.data[dateIdx]) : NaN;
-            const kb = dateIdx > -1 ? parseDate(b.data[dateIdx]) : NaN;
-            if (!isNaN(ka) && !isNaN(kb) && ka !== kb) return dir * (ka - kb);
+            const sa = seqIdx > -1 ? parseFloat(a.data[seqIdx]) : NaN;
+            const sb = seqIdx > -1 ? parseFloat(b.data[seqIdx]) : NaN;
+            if (!isNaN(sa) && !isNaN(sb) && sa !== sb) return dir * (sa - sb);
             return dir * (a.originalIndex - b.originalIndex);
         });
         return list;

@@ -444,6 +444,7 @@ const CreatorCardBase = ({ row, headers, rowIndex, loadingRows, onUpdateCell, on
     };
 
     const name = getDisplayName(headers, row);
+    const seq = get('ลำดับ')?.v;
     const link = get('ลิงค์')?.v ?? get('tiktok')?.v;
     const handle = extractTiktokUsername(link);
     const isLink = link && String(link).startsWith('http');
@@ -514,6 +515,9 @@ const CreatorCardBase = ({ row, headers, rowIndex, loadingRows, onUpdateCell, on
                 {/* header: ชื่อ + select */}
                 <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
+                        {seq !== null && seq !== undefined && seq !== '' && (
+                            <div className="text-[10px] font-bold text-slate-400 leading-none mb-0.5" title="ลำดับ">{seq}</div>
+                        )}
                         <div className="font-extrabold text-sm text-slate-900 truncate leading-tight">{name}</div>
                     </div>
                     <button type="button" onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
