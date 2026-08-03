@@ -29,7 +29,11 @@ repo นี้มีโค้ด **2 เจนอยู่พร้อมกั�
 - **Google Sheets คือแหล่งข้อมูลตั้งต้น** ทีมยังแก้ข้อมูลที่ชีตโดยตรงทุกวัน — ระบบต้องเคารพว่าชีตคือความจริง
 - ข้อมูลกระจายอยู่ใน **หลายไฟล์สเปรดชีต** (1 ไฟล์ = 1 ทีม/แอดมิน) ไม่ใช่ไฟล์เดียวหลายแท็บ — โค้ดที่ assume ไฟล์เดียวจะพังเมื่อทีมเพิ่มขึ้น
 - ตาราง `sheets` ใน Supabase เก็บ `spreadsheet_id` + `tab_name` แยกต่อแถว — ใช้ค่านี้เป็นตัวชี้ปลายทางเสมอ อย่า hardcode spreadsheet id ในโค้ด
-- ทิศทาง sync ปัจจุบัน: **Sheet → Supabase เท่านั้น** (ผ่าน `sheet-sync` / `sheet-poll` และสคริปต์ใน `backend/scripts/`) ทางกลับ (Supabase → Sheet) ยังไม่มี กำลังทำอยู่ — ดู `docs/superpowers/plans/`
+- Sync ไปกลับสองทางแล้ว (ยืนยันทำงานจริงครบ 4 แท็บ 2026-08-03):
+  - **Sheet → Supabase**: `sheet-poll` รันทุกนาทีผ่าน pg_cron เรียก RPC `sync_sheet_records()` (ไม่ใช่ loop ทีละแถวผ่าน PostgREST เหมือนเดิม — เคยชน Google Sheets write quota 429 มาแล้ว)
+  - **Supabase → Sheet**: `sheet-push` ยิงจาก trigger บนตาราง `records` (statement-level, `security definer`) ทุกครั้งที่เว็บแอปเขียนข้อมูล — **เขียนทับทั้งแท็บด้วย 1 PUT เสมอ** (ไม่ใช่แก้ทีละเซลล์) แล้ว pad แถวว่างไปถึง 3000 แถวทุกครั้ง (กันข้อมูลเก่าเหลือค้าง) — ผลข้างเคียงที่ตั้งใจ ไม่ใช่บั๊ก
+  - **กันวนลูป**: `sync_sheet_records()` ตั้ง `app.skip_sheet_push` ทุกครั้งที่ sheet-poll เขียน กัน sheet-push ยิงย้อนกลับตอน sync ขาเข้า
+  - รายละเอียด/ประวัติบั๊กที่เจอ: `docs/superpowers/plans/`
 - คอลัมน์ของแต่ละชีตไม่ตายตัวโดยตั้งใจ — อย่ายึดตำแหน่งคอลัมน์ตายตัว ให้อ่าน header ของ sheet นั้นเสมอ
 - setup ของ sync ทั้งหมดอธิบายไว้ที่ `backend/README.md`
 
