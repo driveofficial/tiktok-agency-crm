@@ -1007,6 +1007,12 @@ const App = () => {
                 </button>
             )}
 
+            {view === 'list' && !selectMode && showScrollTop && (
+                <button onClick={scrollToTop} className="md:hidden fixed bottom-[104px] right-5 z-40 w-11 h-11 rounded-full bg-white text-[#215E61] shadow-lg border border-slate-200 flex items-center justify-center active:scale-95 transition-all animate-enter" aria-label="เลื่อนขึ้นบนสุด">
+                    <Icons.ChevronUp size={22} />
+                </button>
+            )}
+
             <main ref={mainRef} className="flex-1 px-6 pb-6 pt-0 min-h-0 md:overflow-y-auto">
                 {view === 'list' ? (
                     globalMode ? (
@@ -1116,8 +1122,6 @@ const App = () => {
                                         <span className="text-xs font-bold text-slate-600 tabular-nums px-1.5 min-w-[68px] text-center">หน้า {currentPage} / {totalPages || 1}</span>
                                         <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages || totalPages === 0} className="rounded-lg border-slate-200 h-9 px-4 text-xs font-bold text-slate-500 hover:text-slate-700">Next</Button>
                                         <Button variant="outline" size="icon" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages || totalPages === 0} title="หน้าสุดท้าย" aria-label="ไปหน้าสุดท้าย" className="rounded-lg border-slate-200 text-slate-500 hover:text-slate-700"><Icons.ChevronsRight size={16} /></Button>
-                                        <div className="w-px h-5 bg-slate-200 mx-1"></div>
-                                        <Button variant="outline" size="icon" onClick={scrollToTop} title="เลื่อนขึ้นบนสุด" aria-label="เลื่อนขึ้นบนสุด" className="rounded-lg border-slate-200 text-[#215E61] hover:text-[#1a4a4d]"><Icons.ChevronUp size={16} /></Button>
                                     </div>
                                 </div>
                             )}
