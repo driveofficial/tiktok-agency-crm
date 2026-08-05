@@ -917,11 +917,11 @@ const App = () => {
                     )}
                     <h1 className="text-xl font-extrabold tracking-tight text-slate-900 hidden sm:block">TikTok CRM</h1>
                 </div>
-                <div className="flex items-center gap-3">
-                    <a href="https://drive-calculator.vercel.app/" target="_blank" rel="noopener noreferrer" aria-label="คำนวณเรท" className="flex items-center gap-2 bg-gradient-to-r from-[#215E61] to-[#1a4a4d] text-white px-3 md:px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-rose-300/50 transition-all hover:scale-105 active:scale-95 group">
+                <div className="flex items-center gap-2 md:gap-3">
+                    <a href="https://drive-calculator.vercel.app/" target="_blank" rel="noopener noreferrer" aria-label="คำนวณเรท" className="flex items-center gap-2 bg-gradient-to-r from-[#215E61] to-[#1a4a4d] text-white px-2.5 md:px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-rose-300/50 transition-all hover:scale-105 active:scale-95 group">
                         <Icons.Calculator size={18} className="group-hover:rotate-12 transition-transform" /><span className="hidden md:inline">คำนวณเรท</span>
                     </a>
-                    <a href="https://script-six-rho.vercel.app/pages/sereniz" target="_blank" rel="noopener noreferrer" aria-label="Script" className="flex items-center gap-2 bg-[#215E61] text-white px-3 md:px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-all hover:scale-105 hover:bg-[#1a4a4d] active:scale-95 group">
+                    <a href="https://script-six-rho.vercel.app/pages/sereniz" target="_blank" rel="noopener noreferrer" aria-label="Script" className="flex items-center gap-2 bg-[#215E61] text-white px-2.5 md:px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-all hover:scale-105 hover:bg-[#1a4a4d] active:scale-95 group">
                         <Icons.ExternalLink size={16} className="group-hover:translate-x-0.5 transition-transform" /><span className="hidden md:inline">Script</span>
                     </a>
                     <div className="bg-white p-1 rounded-xl shadow-sm border border-slate-100 flex">
@@ -1016,18 +1016,18 @@ const App = () => {
             )}
 
             {view === 'list' && !selectMode && (
-                <button onClick={() => { setEditingRowIndex(null); setModalOpen(true); }} className="md:hidden fixed bottom-10 right-5 z-40 w-14 h-14 rounded-full bg-[#215E61] hover:bg-[#1a4a4d] text-white shadow-xl shadow-rose-300/50 flex items-center justify-center active:scale-95 transition-all" aria-label="Add new record">
+                <button onClick={() => { setEditingRowIndex(null); setModalOpen(true); }} className="md:hidden fixed bottom-24 right-5 z-40 w-14 h-14 rounded-full bg-[#215E61] hover:bg-[#1a4a4d] text-white shadow-xl shadow-rose-300/50 flex items-center justify-center active:scale-95 transition-all" aria-label="Add new record">
                     <Icons.Plus size={26} />
                 </button>
             )}
 
             {view === 'list' && !selectMode && showScrollTop && (
-                <button onClick={scrollToTop} className="md:hidden fixed bottom-[104px] right-5 z-40 w-11 h-11 rounded-full bg-white text-[#215E61] shadow-lg border border-slate-200 flex items-center justify-center active:scale-95 transition-all animate-enter" aria-label="เลื่อนขึ้นบนสุด">
+                <button onClick={scrollToTop} className="md:hidden fixed bottom-[160px] right-5 z-40 w-11 h-11 rounded-full bg-white text-[#215E61] shadow-lg border border-slate-200 flex items-center justify-center active:scale-95 transition-all animate-enter" aria-label="เลื่อนขึ้นบนสุด">
                     <Icons.ChevronUp size={22} />
                 </button>
             )}
 
-            <main ref={mainRef} className="flex-1 px-6 pb-6 pt-0 min-h-0 md:overflow-y-auto">
+            <main ref={mainRef} className="flex-1 px-6 pb-40 md:pb-6 pt-0 min-h-0 md:overflow-y-auto">
                 {view === 'list' ? (
                     globalMode ? (
                         <div className="bg-white rounded-[32px] h-full shadow-sm border border-slate-100 flex flex-col overflow-hidden animate-enter">
