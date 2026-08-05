@@ -314,6 +314,7 @@ const App = () => {
     const [hideBlank, setHideBlank] = useStickyState(true, "crm_hide_blank_v2");
     const [isNarrowScreen, setIsNarrowScreen] = React.useState(window.innerWidth < 768);
     const viewMode = isNarrowScreen ? 'card' : viewModePref;
+    const [showScrollTop, setShowScrollTop] = React.useState(false); // ปุ่มเลื่อนขึ้นเร็ว (มือถือ) — โผล่หลังเลื่อนลงพ้นจอแรก
 
     const [headers, setHeaders] = React.useState([]);
     const [rows, setRows] = React.useState([]);
@@ -402,6 +403,15 @@ const App = () => {
         handleResize();
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // มือถือทั้งหน้าเลื่อนบน window เอง (root container ไม่ fixed/overflow-hidden ต่ำกว่า md — ดู
+    // className ของ div ครอบนอกสุด) ปุ่มเลื่อนขึ้นเร็วเลยฟังจาก window.scrollY ตรงๆ
+    React.useEffect(() => {
+        const handleScroll = () => setShowScrollTop(window.scrollY > 400);
+        handleScroll();
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
     React.useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
@@ -992,7 +1002,7 @@ const App = () => {
             )}
 
             {view === 'list' && !selectMode && (
-                <button onClick={() => { setEditingRowIndex(null); setModalOpen(true); }} className="md:hidden fixed bottom-6 right-5 z-40 w-14 h-14 rounded-full bg-[#215E61] hover:bg-[#1a4a4d] text-white shadow-xl shadow-rose-300/50 flex items-center justify-center active:scale-95 transition-all" aria-label="Add new record">
+                <button onClick={() => { setEditingRowIndex(null); setModalOpen(true); }} className="md:hidden fixed bottom-10 right-5 z-40 w-14 h-14 rounded-full bg-[#215E61] hover:bg-[#1a4a4d] text-white shadow-xl shadow-rose-300/50 flex items-center justify-center active:scale-95 transition-all" aria-label="Add new record">
                     <Icons.Plus size={26} />
                 </button>
             )}
@@ -1099,7 +1109,7 @@ const App = () => {
                             )}
                             {filteredRows.length > 0 && (
                                 <div className="shrink-0 px-1 py-4 flex items-center justify-between z-20">
-                                    <span className="text-[11px] text-slate-500 font-bold uppercase tracking-widest">SHOWING {Math.min(filteredRows.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(filteredRows.length, currentPage * ITEMS_PER_PAGE)} OF {filteredRows.length}</span>
+                                    <span className="hidden md:inline text-[11px] text-slate-500 font-bold uppercase tracking-widest">SHOWING {Math.min(filteredRows.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(filteredRows.length, currentPage * ITEMS_PER_PAGE)} OF {filteredRows.length}</span>
                                     <div className="flex items-center gap-2">
                                         <Button variant="outline" size="icon" onClick={() => setCurrentPage(1)} disabled={currentPage === 1} title="หน้าแรก" aria-label="ไปหน้าแรก" className="rounded-lg border-slate-200 text-slate-500 hover:text-slate-700"><Icons.ChevronsLeft size={16} /></Button>
                                         <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="rounded-lg border-slate-200 h-9 px-4 text-xs font-bold text-slate-500 hover:text-slate-700">Prev</Button>

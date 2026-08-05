@@ -236,10 +236,10 @@ export const EditModal = ({ isOpen, onClose, onSubmit, headers, initialData, isS
                         </div>
                     )}
                 </div>
-                <div className="p-4 border-t bg-white rounded-b-[24px] flex justify-end gap-2 flex-wrap">
-                    <Button variant="ghost" onClick={onClose}>ยกเลิก</Button>
-                    {!initialData && <Button variant="outline" onClick={() => submit(true)} isLoading={isSubmitting}>บันทึกแล้วเพิ่มต่อ</Button>}
-                    <Button onClick={() => submit(false)} isLoading={isSubmitting}>บันทึก</Button>
+                <div className="p-4 border-t bg-white rounded-b-[24px] flex justify-end items-center gap-1.5 sm:gap-2">
+                    <Button variant="ghost" size="sm" className="sm:h-11 sm:px-5 sm:text-sm shrink-0" onClick={onClose}>ยกเลิก</Button>
+                    {!initialData && <Button variant="outline" size="sm" className="sm:h-11 sm:px-5 sm:text-sm shrink-0" onClick={() => submit(true)} isLoading={isSubmitting}>บันทึกแล้วเพิ่มต่อ</Button>}
+                    <Button size="sm" className="sm:h-11 sm:px-5 sm:text-sm shrink-0" onClick={() => submit(false)} isLoading={isSubmitting}>บันทึก</Button>
                 </div>
             </div>
         </div>
