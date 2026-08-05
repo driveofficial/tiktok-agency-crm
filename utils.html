@@ -181,6 +181,9 @@ window.getPipelineStage = function(headers, row) {
     }
     if (status.includes('ดีลจบ')) return { index: 4, label: 'ดีลจบ', dropped: false };
     if (status.includes('รับข้อเสนอ')) {
+        if (status.includes('ยังไม่กดขอ')) {
+            return { index: 2, label: 'รับข้อเสนอ (ยังไม่กดขอสินค้า)', dropped: false };
+        }
         if (shipped.includes('ส่งแล้ว') || clip.includes('ลงแล้ว') || (received && received !== '-')) {
             return { index: 3, label: 'ส่งของ/รอคลิป', dropped: false };
         }

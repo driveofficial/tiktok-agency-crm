@@ -317,6 +317,7 @@ function getRoutingMap() {
           finalMap.push({ name: safeName, label: specificTabName, id: spreadsheetId, tabName: specificTabName, source: sourceName });
         } catch (e) {
            console.warn(`Skip ${specificTabName}: Access Denied`);
+           finalMap.push({ name: `⚠️ Access Denied: ${sourceName}`, label: `⚠️ Access Denied: ${sourceName}`, id: "ERROR", tabName: "ERROR", source: sourceName });
         }
       } else {
         try {
@@ -622,6 +623,7 @@ function addData(displayName, rowData) {
     sheet.appendRow(stringRow);
     clearDashboardCache();
     CACHE.remove(CACHE_KEY_DIRECTORY); // เพิ่มคนใหม่ → ล้าง index ให้เตือนซ้ำเห็นคนนี้ทันทีรอบหน้า
+    CACHE.remove(CACHE_KEY_TEAM_CORPUS + info.source); // กัน global search เจอข้อมูลเก่าค้าง TTL 30 นาที
     return { success: true };
   } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
 }
@@ -639,6 +641,7 @@ function updateData(displayName, rowIndex, rowData, expectedRow) {
     sheet.getRange(actualRow, 1, 1, stringRow.length).setValues([stringRow]);
     clearDashboardCache();
     CACHE.remove(CACHE_KEY_DIRECTORY); // แก้ไขแถว (อาจแก้ลิงก์/เบอร์/ชื่อ) → ล้าง index กัน checkDuplicate ค้างข้อมูลเก่า
+    CACHE.remove(CACHE_KEY_TEAM_CORPUS + info.source);
     return { success: true };
   } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
 }
@@ -655,6 +658,7 @@ function deleteData(displayName, rowIndex, expectedRow) {
     sheet.deleteRow(actualRow);
     clearDashboardCache();
     CACHE.remove(CACHE_KEY_DIRECTORY); // ลบครีเอเตอร์ → ล้าง index กัน checkDuplicate เตือนซ้ำผิดๆ ด้วยข้อมูลเก่า
+    CACHE.remove(CACHE_KEY_TEAM_CORPUS + info.source);
     // ส่ง lastRow หลังลบกลับไปให้ client เก็บไว้เทียบตอน undo (ดู insertRowData) — ถ้ามีคนอื่นแก้โครงสร้าง
     // แถว (เพิ่ม/ลบ) ของชีตนี้ระหว่างรอกดเลิกทำ lastRow จะไม่ตรง แล้ว undo จะปฏิเสธแทนที่จะแทรกผิดตำแหน่ง
     return { success: true, lastRowAfterDelete: sheet.getLastRow() };
@@ -689,6 +693,7 @@ function insertRowData(displayName, rowIndex, rowData, expectedLastRow) {
     }
     clearDashboardCache();
     CACHE.remove(CACHE_KEY_DIRECTORY); // กู้คืนแถว = ครีเอเตอร์กลับมา → ล้าง index ให้เตือนซ้ำสด
+    CACHE.remove(CACHE_KEY_TEAM_CORPUS + info.source);
     return { success: true };
   } catch (err) { return { success: false, error: err.toString() }; } finally { lock.releaseLock(); }
 }
@@ -722,7 +727,7 @@ function bulkUpdateCell(displayName, rowIndices, colIndex, value, expectedRows) 
     // จะได้โหลดข้อมูลจริงจากชีตมาเทียบ แทนที่จะเชื่อ optimistic UI เดิมที่ไม่ตรงกับชีตแล้ว
     return { success: false, partial: appliedCount > 0, applied: appliedCount, error: err.toString() };
   } finally {
-    if (appliedCount > 0) { clearDashboardCache(); CACHE.remove(CACHE_KEY_DIRECTORY); }
+    if (appliedCount > 0) { clearDashboardCache(); CACHE.remove(CACHE_KEY_DIRECTORY); CACHE.remove(CACHE_KEY_TEAM_CORPUS + info.source); }
     lock.releaseLock();
   }
 }
@@ -751,7 +756,7 @@ function bulkDeleteRows(displayName, rowIndices, expectedRows) {
   } catch (err) {
     return { success: false, partial: appliedCount > 0, applied: appliedCount, error: err.toString() };
   } finally {
-    if (appliedCount > 0) { clearDashboardCache(); CACHE.remove(CACHE_KEY_DIRECTORY); }
+    if (appliedCount > 0) { clearDashboardCache(); CACHE.remove(CACHE_KEY_DIRECTORY); CACHE.remove(CACHE_KEY_TEAM_CORPUS + info.source); }
     lock.releaseLock();
   }
 }

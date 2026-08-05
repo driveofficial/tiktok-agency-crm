@@ -194,7 +194,7 @@ const QuickStats = ({ rows, headers }) => {
     const stats = React.useMemo(() => {
         const total = rows.length;
         let pending = 0, accepted = 0, dealt = 0;
-        const statusIdx = headers.findIndex(h => h.includes('สถานะ'));
+        const statusIdx = headers.findIndex(h => h && h.includes('สถานะ'));
         if (statusIdx > -1) {
             rows.forEach(r => {
                 const s = String(r.data[statusIdx] || "").toLowerCase();
@@ -357,6 +357,7 @@ const App = () => {
     const alertResolver = React.useRef(null);
     const activeTabRef = React.useRef("");
     const mutationSeq = React.useRef(0);
+    const loadSeq = React.useRef(0); // กัน loadData request เก่าที่ resolve ช้ากว่า ทับ state ของ request ใหม่กว่า
 
     const [selectMode, setSelectMode] = React.useState(false);
     const [selectedRows, setSelectedRows] = React.useState(new Set());
@@ -497,6 +498,7 @@ const App = () => {
 
     const loadData = React.useCallback(async (sheet, silent = false) => {
         if (!sheet) return;
+        const mySeq = ++loadSeq.current;
         const cacheKey = `crm_sheet_${sheet}`;
         const cachedData = localStorage.getItem(cacheKey);
         if (cachedData && !silent) {
@@ -510,16 +512,18 @@ const App = () => {
         try {
             const res = await fetchSheetData(sheet);
             if (sheet !== activeTabRef.current) return;
+            // request เก่ากว่านี้แซง resolve ทีหลัง request ใหม่กว่าที่ทับ state ไปแล้ว — ทิ้งผลนี้ ไม่งั้นข้อมูลเก่าจะทับของใหม่
+            if (loadSeq.current !== mySeq) return;
             if (res.error) throw new Error(res.error);
             setHeaders(res.headers);
             setRows(res.data);
             localStorage.setItem(cacheKey, JSON.stringify({ headers: res.headers, data: res.data, timestamp: Date.now() }));
         } catch (error) {
-            if (sheet === activeTabRef.current && !cachedData) {
+            if (sheet === activeTabRef.current && loadSeq.current === mySeq && !cachedData) {
                 showAlert({ type: 'error', title: 'โหลดข้อมูลไม่สำเร็จ', description: error.message });
             }
         } finally {
-            if (sheet === activeTabRef.current) { setIsLoading(false); setIsRefreshing(false); }
+            if (sheet === activeTabRef.current && loadSeq.current === mySeq) { setIsLoading(false); setIsRefreshing(false); }
         }
     }, []);
 
@@ -532,7 +536,7 @@ const App = () => {
             const matchesSearch = !debouncedSearchTerm || item.data.some(cell => String(cell).toLowerCase().includes(debouncedSearchTerm.toLowerCase()));
             let matchesStatus = true;
             if (statusFilter !== 'ALL') {
-                const statusIdx = headers.findIndex(h => h.includes('สถานะ'));
+                const statusIdx = headers.findIndex(h => h && h.includes('สถานะ'));
                 if (statusIdx > -1) {
                     const rowStatus = String(item.data[statusIdx] || "").toLowerCase();
                     if (statusFilter === 'Pending') matchesStatus = rowStatus.includes('กำลังตัดสินใจ');
@@ -635,7 +639,16 @@ const App = () => {
             localStorage.setItem(`crm_sheet_${activeTab}`, JSON.stringify({ headers, data: newRows, timestamp: Date.now() }));
             await loadData(activeTab, true);
         } catch (error) {
-            setRows(oldRows);
+            // revert แค่ cell นี้บน state ล่าสุด (ไม่ใช่ทับทั้งอาเรย์ด้วย oldRows สแนปช็อตเก่า) กันแก้ 2 cell
+            // ติดกันแล้วอันแรก fail มาทับค่าที่อันสองเซฟสำเร็จไปแล้วให้หายไปด้วย
+            setRows(prev => {
+                if (!prev[rowIndex]) return prev;
+                const reverted = [...prev];
+                const revertedRow = [...reverted[rowIndex]];
+                revertedRow[colIndex] = oldRows[rowIndex][colIndex];
+                reverted[rowIndex] = revertedRow;
+                return reverted;
+            });
             showToast('error', 'บันทึกไม่สำเร็จ', 'ไม่สามารถบันทึกค่าได้');
         } finally {
             setLoadingCells(prev => { const next = new Set(prev); next.delete(cellId); return next; });
@@ -829,7 +842,7 @@ const App = () => {
     };
 
     const handleBulkStatusUpdate = async (newStatus) => {
-        const statusIdx = headers.findIndex(h => h.includes('สถานะ'));
+        const statusIdx = headers.findIndex(h => h && h.includes('สถานะ'));
         if (statusIdx === -1 || selectedRows.size === 0) return;
         mutationSeq.current++;
         const idxArr = Array.from(selectedRows);
@@ -852,6 +865,7 @@ const App = () => {
             showToast('success', 'อัปเดตแล้ว', `อัปเดตสถานะ ${idxArr.length} รายการแล้ว`);
             setSelectMode(false); setSelectedRows(new Set());
             refreshDashboardSilently();
+            await loadData(activeTab, true);
         } catch (error) {
             setRows(oldRows);
             showAlert({ type: 'error', title: 'อัปเดตหลายรายการไม่สำเร็จ', description: error.message });
@@ -941,7 +955,7 @@ const App = () => {
                             <FilterDropdown value={statusFilter} onChange={handleStatusFilterChange} options={COLUMN_CONFIG["สถานะ"].options.filter(o => o !== "-")} />
                             <div className="relative w-64">
                                 <Icons.Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
+                                <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
                             </div>
                             <button onClick={toggleGlobalMode} title="ค้นทั้งทีม" aria-pressed={globalMode} className={`flex items-center gap-1.5 h-10 px-3 rounded-xl border text-sm font-bold transition-all shrink-0 whitespace-nowrap ${globalMode ? 'bg-[#215E61] text-white border-[#215E61] shadow-md' : 'bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100'}`}><Icons.Layers size={16} /> ทั้งทีม</button>
                             <button onClick={() => { setSortOrder(o => o === 'newest' ? 'oldest' : 'newest'); setCurrentPage(1); }} title="สลับลำดับ เก่า/ใหม่" aria-label={`ลำดับปัจจุบัน: ${sortOrder === 'newest' ? 'ใหม่สุดก่อน' : 'เก่าสุดก่อน'}`} className="flex items-center gap-1.5 h-10 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 text-sm font-bold transition-all shrink-0 whitespace-nowrap">
@@ -965,7 +979,7 @@ const App = () => {
                             <div className="flex items-center gap-1.5 w-full">
                                 <div className="relative flex-1 min-w-0">
                                     <Icons.Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                    <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
+                                    <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
                                 </div>
                                 <button onClick={toggleGlobalMode} aria-pressed={globalMode} title="ค้นทั้งทีม" className={`shrink-0 flex items-center gap-1 h-10 px-3 rounded-xl border text-xs font-bold transition-all ${globalMode ? 'bg-[#215E61] text-white border-[#215E61] shadow-md' : 'bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100'}`}><Icons.Layers size={16} /> ทั้งทีม</button>
                             </div>

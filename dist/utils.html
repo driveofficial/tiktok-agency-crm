@@ -181,6 +181,9 @@ window.getPipelineStage = function(headers, row) {
     }
     if (status.includes('ดีลจบ')) return { index: 4, label: 'ดีลจบ', dropped: false };
     if (status.includes('รับข้อเสนอ')) {
+        if (status.includes('ยังไม่กดขอ')) {
+            return { index: 2, label: 'รับข้อเสนอ (ยังไม่กดขอสินค้า)', dropped: false };
+        }
         if (shipped.includes('ส่งแล้ว') || clip.includes('ลงแล้ว') || (received && received !== '-')) {
             return { index: 3, label: 'ส่งของ/รอคลิป', dropped: false };
         }
@@ -476,13 +479,15 @@ window.deleteRow = async function(sheetName, rowIndex, expectedRow) {
 };
 
 // Re-insert a deleted row at its original position (undo delete)
-window.insertRow = async function(sheetName, rowIndex, row) {
+// expectedLastRow: lastRowAfterDelete ที่ได้จาก deleteRow ตอนลบ — ให้ server เช็คว่าโครงสร้างชีต
+// (จำนวนแถว) ไม่เปลี่ยนไประหว่างรอกดเลิกทำ ถ้าเปลี่ยนแล้วจะ conflict แทนแทรกผิดตำแหน่งเงียบๆ
+window.insertRow = async function(sheetName, rowIndex, row, expectedLastRow) {
     if (window.isGAS) {
         return new Promise(function(resolve) {
             google.script.run
                 .withSuccessHandler(function(res) { resolve(res); })
                 .withFailureHandler(function(err) { resolve({ success: false, error: err.message }); })
-                .insertRowData(sheetName, rowIndex, row);
+                .insertRowData(sheetName, rowIndex, row, expectedLastRow);
         });
     } else {
         await new Promise(function(r) { setTimeout(r, 400); });

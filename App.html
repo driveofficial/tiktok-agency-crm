@@ -24,7 +24,11 @@
                     return d.getMonth() === mo ? d.getTime() : NaN;
                 }
                 const t = Date.parse(s);
-                return isNaN(t) ? NaN : t;
+                if (isNaN(t)) return NaN;
+                // กัน typo พิมพ์ปีเกินหลัก (เช่น "20226-04-28") ที่ Date.parse เชื่อเป็นปีจริง
+                // แทนที่จะ NaN — ปีนอกช่วงนี้ไม่ใช่วันที่จริงที่ทีมพิมพ์ได้
+                const y = new Date(t).getFullYear();
+                return (y < 2000 || y > 2200) ? NaN : t;
             };
 
             // จำแนกแต่ละแถวว่าเป็น "งานค้าง" ประเภทไหน (ใช้กับปุ่มกรองด่วน) — อ่านหัวคอลัมน์แบบยืดหยุ่น
@@ -194,7 +198,7 @@
                     let accepted = 0;
                     let dealt = 0;
 
-                    const statusIdx = headers.findIndex(h => h.includes('สถานะ'));
+                    const statusIdx = headers.findIndex(h => h && h.includes('สถานะ'));
                     
                     if (statusIdx > -1) {
                         rows.forEach(r => {
@@ -213,7 +217,7 @@
                     <div className="flex flex-wrap gap-3 py-1 animate-enter">
                         <div className="flex items-center gap-3 bg-white pl-3 pr-4 py-2 rounded-2xl shadow-sm border border-slate-100 shrink-0">
                             <div className="w-8 h-8 rounded-full bg-[#FF9E20] text-[#3a1a00] flex items-center justify-center font-bold text-xs shadow-md shadow-orange-300/50">{stats.total}</div>
-                            <span className="text-xs font-bold text-slate-600">รายการ<br/><span className="text-[10px] font-normal text-slate-400">ในหน้านี้</span></span>
+                            <span className="text-xs font-bold text-slate-600">รายการ<br/><span className="text-[10px] font-normal text-slate-400">ที่กรองไว้</span></span>
                         </div>
 
                         <div className="flex items-center gap-3 bg-white pl-3 pr-4 py-2 rounded-2xl shadow-sm border border-amber-400/40 shrink-0">
@@ -528,6 +532,13 @@
                                     setActiveTeam(firstTeam);
                                     const firstTab = res.data.find(s => s.source === firstTeam);
                                     if (firstTab) setActiveTab(firstTab.name);
+                                } else {
+                                    // team ยังอยู่ แต่ tab เดิมอาจถูกลบ/เปลี่ยนชื่อไปแล้ว (ผู้ใช้แก้โครงสร้างชีต)
+                                    // เช็คว่า activeTab ยังมีอยู่จริงในทีมนี้ไหม ไม่งั้นจะค้างชี้ tab ที่ไม่มีแล้ว
+                                    const teamTabs = res.data.filter(s => s.source === activeTeam);
+                                    if (!activeTab || !teamTabs.some(s => s.name === activeTab)) {
+                                        if (teamTabs[0]) setActiveTab(teamTabs[0].name);
+                                    }
                                 }
                             }
                         }
@@ -651,14 +662,18 @@
                             const mo = +m[2] - 1, d = new Date(normYear(+m[3]), mo, +m[1]);
                             return d.getMonth() === mo ? d.getTime() : NaN;
                         }
-                        const t = Date.parse(s); return isNaN(t) ? NaN : t;
+                        const t = Date.parse(s);
+                        if (isNaN(t)) return NaN;
+                        // กัน typo พิมพ์ปีเกินหลัก (เช่น "20226-04-28") ที่ Date.parse เชื่อเป็นปีจริง
+                        const y = new Date(t).getFullYear();
+                        return (y < 2000 || y > 2200) ? NaN : t;
                     };
                     const dateIdx = headers.findIndex(h => h && h.includes('วันที่'));
                     const list = rows.map((r, i) => ({ data: r, originalIndex: i })).filter(item => {
                         const matchesSearch = !debouncedSearchTerm || item.data.some(cell => String(cell).toLowerCase().includes(debouncedSearchTerm.toLowerCase()));
                         let matchesStatus = true;
                         if (statusFilter !== 'ALL') {
-                            const statusIdx = headers.findIndex(h => h.includes('สถานะ'));
+                            const statusIdx = headers.findIndex(h => h && h.includes('สถานะ'));
                             if (statusIdx > -1) {
                                 const rowStatus = String(item.data[statusIdx] || "").toLowerCase();
                                 if (statusFilter === 'Pending') { 
@@ -1005,7 +1020,7 @@
                 };
 
                 const handleBulkStatusUpdate = async (newStatus) => {
-                    const statusIdx = headers.findIndex(h => h.includes('สถานะ'));
+                    const statusIdx = headers.findIndex(h => h && h.includes('สถานะ'));
                     if (statusIdx === -1 || selectedRows.size === 0) return;
                     mutationSeq.current++;
                     const idxArr = Array.from(selectedRows);
@@ -1161,7 +1176,7 @@
                                         <FilterDropdown value={statusFilter} onChange={handleStatusFilterChange} options={window.COLUMN_CONFIG["สถานะ"].options.filter(o => o !== "-")} />
                                         <div className="relative w-64">
                                             <Icons.Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                            <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
+                                            <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
                                         </div>
                                         {/* ค้นทั้งทีม: สลับจากค้นเฉพาะชีตนี้ เป็นค้นทุกชีตในทีม แล้วบอกว่าเจอในชีตของใคร */}
                                         <button onClick={toggleGlobalMode} title="ค้นทั้งทีม — ค้นทุกชีตในทีมนี้ แล้วบอกว่าเจอในชีตของใคร" aria-pressed={globalMode} className={`flex items-center gap-1.5 h-10 px-3 rounded-xl border text-sm font-bold transition-all shrink-0 whitespace-nowrap ${globalMode ? 'bg-[#215E61] text-white border-[#215E61] shadow-md' : 'bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100'}`}><Icons.Layers size={16} /> ทั้งทีม</button>
@@ -1190,7 +1205,7 @@
                                         <div className="flex items-center gap-2 w-full">
                                             <div className="relative flex-1 min-w-0">
                                                 <Icons.Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                                <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
+                                                <input type="text" placeholder={globalMode ? "ค้นทั้งทีม..." : "Search..."} value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full pl-9 pr-4 py-3 bg-slate-50 border-none rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all placeholder:text-slate-400 text-slate-700" />
                                             </div>
                                             {/* ค้นทั้งทีม (มือถือ) */}
                                             <button onClick={toggleGlobalMode} aria-pressed={globalMode} title="ค้นทั้งทีม" className={`shrink-0 flex items-center gap-1 h-11 px-3 rounded-xl border text-xs font-bold transition-all ${globalMode ? 'bg-[#215E61] text-white border-[#215E61] shadow-md' : 'bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100'}`}><Icons.Layers size={16} /> ทั้งทีม</button>
