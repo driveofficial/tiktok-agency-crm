@@ -211,7 +211,6 @@ const MobileCardBase = ({ row, headers, rowIndex, loadingRows, onUpdateCell, onE
     const followers = get("ผู้ติดตาม")?.v || "-";
     const views = get("วิว")?.v || "-";
     const style = get("สไตล์")?.v || "-";
-    const comm = get("Commission")?.v || "-";
 
     const s = get("สถานะ");
     const l = get("ลิงค์")?.v;
@@ -259,8 +258,8 @@ const MobileCardBase = ({ row, headers, rowIndex, loadingRows, onUpdateCell, onE
             </div>
 
             {showFull && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    {[{ k: 'Followers', v: followers }, { k: 'Views', v: views }, { k: 'Style', v: style }, { k: 'Comm.', v: comm }].map((m, i) => (
+                <div className="grid grid-cols-3 gap-2.5">
+                    {[{ k: 'Followers', v: followers }, { k: 'Views', v: views }, { k: 'Style', v: style }].map((m, i) => (
                         <div key={i} className="bg-slate-50/70 rounded-2xl px-3.5 py-3 border border-slate-100">
                             <div className="text-[11px] text-slate-400 uppercase font-bold tracking-wider mb-1">{m.k}</div>
                             <div className="text-base font-extrabold text-slate-800 truncate">{m.v}</div>
@@ -452,7 +451,6 @@ const CreatorCardBase = ({ row, headers, rowIndex, loadingRows, onUpdateCell, on
     const followers = get('ผู้ติดตาม')?.v || '-';
     const views = String(get('วิว')?.v || '-').replace('หลัก', '');
     const style = get('สไตล์')?.v || '';
-    const comm = get('Commission')?.v || '-';
     const status = get('สถานะ');
     const statusLabel = String(status?.v || '').trim() || 'ยังไม่ระบุ';
     // โชว์ช่องส่งของเฉพาะเมื่อ "รับข้อเสนอ" (ดีลจบ) — ยังไม่รับก็ยังไม่ต้องส่ง
@@ -587,8 +585,8 @@ const CreatorCardBase = ({ row, headers, rowIndex, loadingRows, onUpdateCell, on
                     )}
                 </div>
 
-                {/* 3-stat */}
-                <div className="grid grid-cols-3 rounded-lg bg-[#EDEBEB] divide-x divide-[#1d21281f] overflow-hidden">
+                {/* 2-stat */}
+                <div className="grid grid-cols-2 rounded-lg bg-[#EDEBEB] divide-x divide-[#1d21281f] overflow-hidden">
                     <div className="px-1.5 py-1.5 text-center">
                         <div className="text-[13px] font-extrabold text-slate-900 leading-none truncate">{followers}</div>
                         <div className="text-[9px] text-slate-500 mt-0.5">ผู้ติดตาม</div>
@@ -596,10 +594,6 @@ const CreatorCardBase = ({ row, headers, rowIndex, loadingRows, onUpdateCell, on
                     <div className="px-1.5 py-1.5 text-center">
                         <div className="text-[13px] font-extrabold text-slate-900 leading-none truncate">{views}</div>
                         <div className="text-[9px] text-slate-500 mt-0.5">ระดับวิว</div>
-                    </div>
-                    <div className="px-1.5 py-1.5 text-center">
-                        <div className={`text-[13px] font-extrabold leading-none truncate ${comm === '-' ? 'text-slate-400' : 'text-[#215E61]'}`}>{comm}</div>
-                        <div className="text-[9px] text-slate-500 mt-0.5">Commission</div>
                     </div>
                 </div>
 
