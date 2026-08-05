@@ -302,8 +302,29 @@ const PullToRefresh = ({ onRefresh, refreshing, scrollClassName, children }) => 
     );
 };
 
+const DriveLogo = ({ className = "", textColor = "#0f172a" }) => (
+    <div className={`inline-flex flex-col items-center leading-none select-none gap-[0.08em] ${className}`}>
+        <span className="font-black italic tracking-tight" style={{ color: textColor }}>DRIVE</span>
+        <span className="text-[0.3em] font-extrabold tracking-[0.3em]" style={{ color: textColor }}>OFFICIAL</span>
+    </div>
+);
+
+const AppFooter = () => (
+    <footer className="shrink-0 bg-slate-900 text-white px-4 py-2.5 md:py-4 flex flex-col items-center gap-1 md:gap-2">
+        <div className="flex items-center gap-2 md:gap-3">
+            <a href="https://www.facebook.com/profile.php?id=61578723741182&locale=th_TH" target="_blank" rel="noopener noreferrer" aria-label="Facebook: Drive.Official" className="w-7 h-7 md:w-9 md:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+                <Icons.Facebook size={13} className="md:hidden" /><Icons.Facebook size={16} className="hidden md:block" />
+            </a>
+            <a href="https://www.tiktok.com/@drive.officialth" target="_blank" rel="noopener noreferrer" aria-label="TikTok: @drive.officialth" className="w-7 h-7 md:w-9 md:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+                <Icons.TikTok size={13} className="md:hidden" /><Icons.TikTok size={16} className="hidden md:block" />
+            </a>
+        </div>
+        <DriveLogo textColor="#ffffff" className="text-[26px] md:text-[40px]" />
+        <p className="text-[10px] md:text-[11px] text-white/60 text-center">© 2025-2026 Drive.Official สงวนลิขสิทธิ์</p>
+    </footer>
+);
+
 const App = () => {
-    const LOGO_URL = "";
 
     const [activeTab, setActiveTab] = useStickyState("", "crm_active_tab");
     const [activeTeam, setActiveTeam] = useStickyState("", "crm_active_team");
@@ -910,11 +931,9 @@ const App = () => {
         <div className="min-h-screen md:fixed md:inset-0 flex flex-col bg-[#FFF8F6] text-slate-900 font-sans md:overflow-hidden">
             <header className="shrink-0 px-4 md:px-6 py-3 md:py-4 flex items-center justify-between z-30">
                 <div className="flex items-center gap-3">
-                    {LOGO_URL ? (
-                        <img src={LOGO_URL} alt="Logo" className="w-10 h-10 rounded-xl object-contain bg-white shadow-lg border border-slate-100" />
-                    ) : (
-                        <div className="w-10 h-10 bg-[#215E61] rounded-xl flex items-center justify-center shadow-lg shadow-rose-300/50"><span className="font-extrabold text-xl text-white">T</span></div>
-                    )}
+                    <div className="w-10 h-10 rounded-xl bg-white shadow-lg border border-slate-100 flex items-center justify-center overflow-hidden">
+                        <DriveLogo className="text-[10px]" />
+                    </div>
                     <h1 className="text-xl font-extrabold tracking-tight text-slate-900 hidden sm:block">TikTok CRM</h1>
                 </div>
                 <div className="flex items-center gap-2 md:gap-3">
@@ -1027,7 +1046,7 @@ const App = () => {
                 </button>
             )}
 
-            <main ref={mainRef} className="flex-1 px-6 pb-40 md:pb-6 pt-0 min-h-0 md:overflow-y-auto">
+            <main ref={mainRef} className="flex-1 px-6 pb-6 pt-0 min-h-0 md:overflow-y-auto">
                 {view === 'list' ? (
                     globalMode ? (
                         <div className="bg-white rounded-[32px] h-full shadow-sm border border-slate-100 flex flex-col overflow-hidden animate-enter">
@@ -1152,7 +1171,11 @@ const App = () => {
                         )}
                     </div>
                 )}
+
+                <div className="hidden md:block -mx-6 -mb-6"><AppFooter /></div>
             </main>
+
+            <div className="md:hidden"><AppFooter /></div>
 
             <EditModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSubmit={handleFormSubmit} headers={headers} initialData={editingRowIndex !== null ? rows[editingRowIndex] : null} isSubmitting={isSubmitting} formNonce={formNonce} rowCount={rows.length} />
             <InfoModal isOpen={infoRowIndex !== null} onClose={() => setInfoRowIndex(null)} data={infoRowIndex !== null ? rows[infoRowIndex] : null} headers={headers} />
