@@ -381,40 +381,71 @@ export const Dashboard = ({ data, filterType, filterValue, onFilterChange, loadi
                 {leaderboard.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-300"><Icons.Users size={40} className="mb-2 opacity-50" /><span className="text-xs font-bold">ยังไม่มีข้อมูลในช่วงเวลานี้</span></div>
                 ) : (
-                    <div className="overflow-x-auto -mx-2">
-                        <table className="w-full text-sm min-w-[720px]">
-                            <thead>
-                                <tr className="text-[10px] text-slate-400 font-bold uppercase tracking-wider border-b border-slate-100">
-                                    <th className="px-2 py-2 text-left w-10">#</th>
-                                    <th className="px-2 py-2 text-left">สมาชิก</th>
-                                    <th className="px-2 py-2 text-right">รายชื่อทั้งหมด</th>
-                                    <th className="px-2 py-2 text-right">ตอบกลับ %</th>
-                                    <th className="px-2 py-2 text-right">รับข้อเสนอ</th>
-                                    <th className="px-2 py-2 text-right">ดีลจบ</th>
-                                    <th className="px-2 py-2 text-right">ส่งของแล้ว</th>
-                                    <th className="px-2 py-2 text-right">ลงคลิปแล้ว</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {leaderboard.map((m, i) => {
-                                    const isActive = filterType === 'PERSON' && filterValue === m.name;
-                                    const medal = i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-orange-700' : 'text-slate-300';
-                                    return (
-                                        <tr key={m.name} onClick={() => onFilterChange('PERSON', m.name)} className={`border-b border-slate-50 last:border-0 cursor-pointer transition-colors ${isActive ? 'bg-pink-50/60' : 'hover:bg-slate-50'}`}>
-                                            <td className="px-2 py-3 font-extrabold">{i < 3 ? <Icons.Trophy size={16} className={medal} /> : <span className="text-slate-300 text-xs pl-1">{i + 1}</span>}</td>
-                                            <td className="px-2 py-3"><div className={`font-bold ${isActive ? 'text-pink-700' : 'text-slate-800'}`}>{m.label || m.name}</div><div className="text-[10px] text-slate-400 font-medium">{m.team}</div></td>
-                                            <td className="px-2 py-3 text-right font-bold text-slate-700">{m.total}</td>
-                                            <td className="px-2 py-3 text-right text-[#215E61] font-bold">{m.rates.response}%</td>
-                                            <td className="px-2 py-3 text-right text-emerald-600 font-bold">{m.total_accepted}</td>
-                                            <td className="px-2 py-3 text-right text-teal-700 font-bold">{m.deal_closed}</td>
-                                            <td className="px-2 py-3 text-right text-violet-600 font-bold">{m.shipped}</td>
-                                            <td className="px-2 py-3 text-right text-pink-600 font-bold">{m.clip_posted}</td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
+                    <>
+                        {/* มือถือ: card list กันต้องเลื่อนซ้าย-ขวาดูตาราง */}
+                        <div className="sm:hidden space-y-2">
+                            {leaderboard.map((m, i) => {
+                                const isActive = filterType === 'PERSON' && filterValue === m.name;
+                                const medal = i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-orange-700' : 'text-slate-300';
+                                return (
+                                    <div key={m.name} onClick={() => onFilterChange('PERSON', m.name)}
+                                        className={`rounded-2xl border p-3 cursor-pointer transition-colors ${isActive ? 'bg-pink-50/60 border-pink-200' : 'bg-white border-slate-100 hover:border-slate-200'}`}>
+                                        <div className="flex items-center gap-2 mb-3">
+                                            {i < 3 ? <Icons.Trophy size={16} className={`${medal} shrink-0`} /> : <span className="text-slate-300 text-xs font-bold w-4 text-center shrink-0">{i + 1}</span>}
+                                            <div className="min-w-0 flex-1">
+                                                <div className={`font-bold text-sm truncate ${isActive ? 'text-pink-700' : 'text-slate-800'}`}>{m.label || m.name}</div>
+                                                <div className="text-[10px] text-slate-400 font-medium truncate">{m.team}</div>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-3 rounded-lg bg-[#EDEBEB] divide-x divide-[#1d21281f] overflow-hidden">
+                                            <div className="px-1.5 py-1.5 text-center"><div className="text-[13px] font-extrabold text-slate-900 leading-none">{m.total}</div><div className="text-[9px] text-slate-500 mt-0.5">ทั้งหมด</div></div>
+                                            <div className="px-1.5 py-1.5 text-center"><div className="text-[13px] font-extrabold text-[#215E61] leading-none">{m.rates.response}%</div><div className="text-[9px] text-slate-500 mt-0.5">ตอบกลับ</div></div>
+                                            <div className="px-1.5 py-1.5 text-center"><div className="text-[13px] font-extrabold text-emerald-600 leading-none">{m.total_accepted}</div><div className="text-[9px] text-slate-500 mt-0.5">รับข้อเสนอ</div></div>
+                                            <div className="px-1.5 py-1.5 text-center border-t border-[#1d21281f]"><div className="text-[13px] font-extrabold text-teal-700 leading-none">{m.deal_closed}</div><div className="text-[9px] text-slate-500 mt-0.5">ดีลจบ</div></div>
+                                            <div className="px-1.5 py-1.5 text-center border-t border-[#1d21281f]"><div className="text-[13px] font-extrabold text-violet-600 leading-none">{m.shipped}</div><div className="text-[9px] text-slate-500 mt-0.5">ส่งของแล้ว</div></div>
+                                            <div className="px-1.5 py-1.5 text-center border-t border-[#1d21281f]"><div className="text-[13px] font-extrabold text-pink-600 leading-none">{m.clip_posted}</div><div className="text-[9px] text-slate-500 mt-0.5">ลงคลิปแล้ว</div></div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* desktop/tablet: ตารางเดิม */}
+                        <div className="hidden sm:block overflow-x-auto -mx-2">
+                            <table className="w-full text-sm min-w-[720px]">
+                                <thead>
+                                    <tr className="text-[10px] text-slate-400 font-bold uppercase tracking-wider border-b border-slate-100">
+                                        <th className="px-2 py-2 text-left w-10">#</th>
+                                        <th className="px-2 py-2 text-left">สมาชิก</th>
+                                        <th className="px-2 py-2 text-right">รายชื่อทั้งหมด</th>
+                                        <th className="px-2 py-2 text-right">ตอบกลับ %</th>
+                                        <th className="px-2 py-2 text-right">รับข้อเสนอ</th>
+                                        <th className="px-2 py-2 text-right">ดีลจบ</th>
+                                        <th className="px-2 py-2 text-right">ส่งของแล้ว</th>
+                                        <th className="px-2 py-2 text-right">ลงคลิปแล้ว</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {leaderboard.map((m, i) => {
+                                        const isActive = filterType === 'PERSON' && filterValue === m.name;
+                                        const medal = i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-orange-700' : 'text-slate-300';
+                                        return (
+                                            <tr key={m.name} onClick={() => onFilterChange('PERSON', m.name)} className={`border-b border-slate-50 last:border-0 cursor-pointer transition-colors ${isActive ? 'bg-pink-50/60' : 'hover:bg-slate-50'}`}>
+                                                <td className="px-2 py-3 font-extrabold">{i < 3 ? <Icons.Trophy size={16} className={medal} /> : <span className="text-slate-300 text-xs pl-1">{i + 1}</span>}</td>
+                                                <td className="px-2 py-3"><div className={`font-bold ${isActive ? 'text-pink-700' : 'text-slate-800'}`}>{m.label || m.name}</div><div className="text-[10px] text-slate-400 font-medium">{m.team}</div></td>
+                                                <td className="px-2 py-3 text-right font-bold text-slate-700">{m.total}</td>
+                                                <td className="px-2 py-3 text-right text-[#215E61] font-bold">{m.rates.response}%</td>
+                                                <td className="px-2 py-3 text-right text-emerald-600 font-bold">{m.total_accepted}</td>
+                                                <td className="px-2 py-3 text-right text-teal-700 font-bold">{m.deal_closed}</td>
+                                                <td className="px-2 py-3 text-right text-violet-600 font-bold">{m.shipped}</td>
+                                                <td className="px-2 py-3 text-right text-pink-600 font-bold">{m.clip_posted}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
                 )}
             </div>
         </div>
