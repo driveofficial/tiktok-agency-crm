@@ -1040,8 +1040,8 @@ const App = () => {
                 </button>
             )}
 
-            {view === 'list' && !selectMode && showScrollTop && (
-                <button onClick={scrollToTop} className="md:hidden fixed bottom-[160px] right-5 z-40 w-11 h-11 rounded-full bg-white text-[#215E61] shadow-lg border border-slate-200 flex items-center justify-center active:scale-95 transition-all animate-enter" aria-label="เลื่อนขึ้นบนสุด">
+            {(view === 'list' || view === 'dashboard') && !selectMode && showScrollTop && (
+                <button onClick={scrollToTop} className={`md:hidden fixed right-5 z-40 w-11 h-11 rounded-full bg-white text-[#215E61] shadow-lg border border-slate-200 flex items-center justify-center active:scale-95 transition-all animate-enter ${view === 'list' ? 'bottom-[160px]' : 'bottom-5'}`} aria-label="เลื่อนขึ้นบนสุด">
                     <Icons.ChevronUp size={22} />
                 </button>
             )}

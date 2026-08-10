@@ -96,7 +96,8 @@ const DashboardFilterSelector = ({ filterType, filterValue, teams, members, onCh
     const getLabel = () => {
         if (filterType === 'ALL') return 'ภาพรวมองค์กร';
         if (filterType === 'TEAM') return `ทีม: ${filterValue}`;
-        return `สมาชิก: ${filterValue}`;
+        const member = members.find(m => m.name === filterValue);
+        return `สมาชิก: ${member?.label || member?.name || filterValue}`;
     };
 
     const toggle = (e) => {
@@ -151,6 +152,9 @@ const DashboardFilterSelector = ({ filterType, filterValue, teams, members, onCh
 };
 
 export const Dashboard = ({ data, filterType, filterValue, onFilterChange, loading, allSheets, onDrillDown }) => {
+    const filterLabel = filterType === 'ALL' ? 'องค์กรภาพรวม'
+        : filterType === 'PERSON' ? (allSheets.find(s => s.name === filterValue)?.label || filterValue)
+        : filterValue;
     const [timeFrame, setTimeFrame] = React.useState('all');
     const [monthOpen, setMonthOpen] = React.useState(false);
     const [customDateRange, setCustomDateRange] = React.useState({ start: '', end: '' });
@@ -246,7 +250,7 @@ export const Dashboard = ({ data, filterType, filterValue, onFilterChange, loadi
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                         <div>
                             <h2 className="text-3xl md:text-4xl font-extrabold mb-2 text-slate-900 tracking-tight">แดชบอร์ดสรุปผล</h2>
-                            <p className="text-slate-700 font-medium text-lg opacity-80 max-w-lg">ข้อมูลสำหรับ <span className="font-bold underline decoration-2 decoration-white/50">{filterType === 'ALL' ? 'องค์กรภาพรวม' : filterValue}</span></p>
+                            <p className="text-slate-700 font-medium text-lg opacity-80 max-w-lg">ข้อมูลสำหรับ <span className="font-bold underline decoration-2 decoration-white/50">{filterLabel}</span></p>
                             <div className="mt-6 flex flex-wrap gap-3 items-center">
                                 <div className="bg-white/40 backdrop-blur-md px-4 py-2 rounded-2xl text-sm font-bold text-slate-900 shadow-sm border border-white/20">📅 {new Date().toLocaleDateString('th-TH')}</div>
                                 <DashboardFilterSelector filterType={filterType} filterValue={filterValue} teams={Array.from(new Set(allSheets.map(s => s.source)))} members={allSheets} onChange={onFilterChange} />
